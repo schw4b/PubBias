@@ -113,12 +113,13 @@ require(tidyverse)
 require(meta)
 
 pb.bias.bin <- function(data){
-  metadat <- data %>% filter(outcome.measure == "Risk Ratio" | outcome.measure == "Odds Ratio") %>% filter(file.nr != 3014) %>% 
-    filter(events1 > 0 | events2 > 0) %>% 
-    filter(total1 - events1 > 0 | total2 - events2 > 0) %>%
-    group_by(file.nr, outcome.nr, subgroup.nr) %>% 
-    mutate(n = n()) %>% filter(n > 9) %>% 
-    summarize(doi = unique(doi), n = n(),
+  metadat <- data %>% filter(outcome.measure == "Risk Ratio" | outcome.measure == "Odds Ratio") %>% 
+    filter(file.nr != 3014) %>% #file.nr 3014 gibt eine seltsame Fehlermeldung, muss ausgeschlossen werden
+    filter(events1 > 0 | events2 > 0) %>% #comparisons mit events  = 0 ausschliessen
+    filter(total1 - events1 > 0 | total2 - events2 > 0) %>% #comparisons mit events = total ausschliessen - vertr??gt der alg. irgendwie nicht.
+    group_by(file.nr, outcome.nr, subgroup.nr) %>% #Die nachfolgenden Rechnungen werden jeweils f??r diese Gruppen gemacht.
+    mutate(n = n()) %>% filter(n > 9) %>% #Nur meta-analysen mit mehr als 9 comparisons behalten
+    summarize(doi = unique(doi), n = n(), #Summarize fasst alle daten in einer Gruppe zusammen
               pval.peters.bin = metabias(metabin(event.e = events1, n.e = total1, event.c = events2, n.c = total2, sm = "OR"), method = "peters")$p.val,
               pval.harbord.bin = metabias(metabin(event.e = events1, n.e = total1, event.c = events2, n.c = total2, sm = "OR"), method = "score")$p.val,
               trim.bin = trimfill(metabin(event.e = events1, n.e = total1, event.c = events2, n.c = total2))$k0 / n(),
@@ -127,10 +128,10 @@ pb.bias.bin <- function(data){
 }     
 
 pb.bias.cont <- function(data){
-  metadat <- data %>% filter(outcome.measure == "Mean Difference" | outcome.measure == "Std. Mean Difference") %>%# filter(file.nr < 503) %>% 
-    filter(sd1 > 0 & sd2 > 0 ) %>% filter(!is.na(sd1) & !is.na(sd2)) %>% 
-    filter(mean1 != 0 | mean2 != 0 ) %>% filter(!is.na(mean1) & !is.na(mean2)) %>% 
-    group_by(file.nr, outcome.nr, subgroup.nr) %>% 
+  metadat <- data %>% filter(outcome.measure == "Mean Difference" | outcome.measure == "Std. Mean Difference") %>%
+    filter(sd1 > 0 & sd2 > 0 ) %>% filter(!is.na(sd1) & !is.na(sd2)) %>% #Nur comparisons mit sinnvollen sd's behalten
+    filter(mean1 != 0 | mean2 != 0 ) %>% filter(!is.na(mean1) & !is.na(mean2)) %>% #Nur comparisons behalten die nicht beide means  = 0 haben
+    group_by(file.nr, outcome.nr, subgroup.nr) %>% #Siehe oben
     mutate(n = n()) %>% filter(n > 9) %>% 
     summarize(doi = unique(doi), n = n(),
               pval.egger.cont = metabias(metacont(n.e = total1, mean.e = mean1, sd.e = sd1, n.c = total2, mean.c = mean2, sd.c = sd2), 

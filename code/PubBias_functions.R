@@ -103,9 +103,9 @@ pb.rev = function(data) {
 }
 
 pb.search = function(keyword) {
-  idx1 = grepl(keyword, data$outcome.name)
-  idx2 = grepl(keyword, data$comparison.name)
-  idx3 = grepl(keyword, data$study.name)
+  idx1 = grepl(keyword, data$outcome.name, ignore.case = T)
+  idx2 = grepl(keyword, data$comparison.name, ignore.case = T)
+  idx3 = grepl(keyword, data$study.name, ignore.case = T)
   return(data[idx1|idx2|idx3,c(1,3,7,9,10,12,13,18,22)])
 }
 

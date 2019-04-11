@@ -1,5 +1,7 @@
 # by Simon Schwab, 2019
 
+library(testit)
+
 # Reads the data
 pb.readData = function(path, file) {
   
@@ -53,36 +55,24 @@ pb.clean = function(data) {
   return(list(data, aliases))
 }
 
-# Creates dataset used for pooling. We need to know what outcomes and subgroups can be combined
-# in a pooled analysis. Searches for duplicates in {outcome, subgroup} pairs per m meta-analyses
-# and c comparisons.
+# Adds pool.nr. We need to know what outcomes and subgroups can be combined in a pooled analysis.
+# Searches for duplicates in {file.nr, comparison.nr, outcome.nr, subgroup.nr}.
 pb.pool = function(data) {
   
-  r.id = unique(data$file.nr)
-  mylist = list()
-  count = 1
-  for ( m in 1:length(r.id) ) {
-    review = data[data$file.nr == r.id[m],]
-    c.id = unique(review$comparison.nr)
-    
-    for ( c in 1:length(c.id) ) {
-      compar = review[review$comparison.nr == c.id[c],]
-      pairs = cbind(compar$outcome.nr, compar$subgroup.nr)
-      idx = duplicated(pairs)
-      
-      if (any(idx)) {
-        pairs = unique(array(pairs[idx,], dim=c(sum(idx),2)))
-        
-        for ( p in 1:nrow(pairs) ) {
-          d = compar[compar$outcome.nr==pairs[p,1] & compar$subgroup.nr==pairs[p,2],]
-          d$pool.nr = p
-          mylist[[count]] = d
-          count = count + 1
-        }
-      }
-    }
+  # create table to check for duplicates, these get the same pool nr
+  tab = cbind(data$file.nr, data$comparison.nr, data$outcome.nr, data$subgroup.nr)
+  idx = duplicated(tab)
+  
+  data$pool.nr = rep(NA, nrow(data))
+  from = which(!idx)
+  to   = c(from[2:length(from)] - 1, length(idx))
+  
+  # iterate through list of duplicates and assign nr
+  c = 1
+  for (i in 1:length(from)) {
+    data$pool.nr[from[i]:to[i]] = c
+    c = c + 1
   }
-  return(rbindlist(mylist))
 }
 
 # Creates a database for reviews (each line one review).
@@ -102,11 +92,26 @@ pb.rev = function(data) {
   return(data.rev)
 }
 
-pb.search = function(keyword) {
+## Search database with a keyword and returns all rows that match.
+## Searches outcome, study name and comparison fields. Using doi=TRUE
+## will only return the doi reviews containing the keyword.
+library(roadoi)
+pb.search = function(keyword, data, doi=TRUE) {
   idx1 = grepl(keyword, data$outcome.name, ignore.case = T)
   idx2 = grepl(keyword, data$comparison.name, ignore.case = T)
   idx3 = grepl(keyword, data$study.name, ignore.case = T)
-  return(data[idx1|idx2|idx3,c(1,3,7,9,10,12,13,18,22)])
+  
+  if (doi) {
+    mydois = unique(data[idx1|idx2|idx3, c('file.nr','doi')])
+    d = oadoi_fetch(dois = mydois$doi, email = "simon.schwab@uzh.ch")
+    assert(all(tolower(mydois$doi) == tolower(d$doi))) # test that fetching returns same doi and same order
+    return(data.frame(mydois, title=d$title, year=d$year))
+    
+  } else {
+  return(data[idx1|idx2|idx3,c("file.nr","comparison.name","outcome.name","outcome.measure", 
+                               "subgroup.name","study.name","total1","total2")])
+  }
+  
 }
 
 require(tidyverse)

@@ -32,19 +32,23 @@ pb.clean = function(data) {
   data$outcome.measure.new = data$outcome.measure
   
   # Define aliases, first element will be used for all aliases
+  # https://handbook-5-1.cochrane.org/chapter_9/9_2_2_5_what_is_the_event.htm
   aliases=list()
-  aliases[[1]] = grep("risk ratio|RR|relat[ive]* risk", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
-  aliases[[2]] = grep("^mean dif|^MD|change in", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
-  aliases[[3]] = grep("Std. mean|SMD", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
-  aliases[[4]] = sort(grep("% change|% increase|% rate|risk difference (%)", names, perl = TRUE, ignore.case = TRUE, value = TRUE))
-  aliases[[5]] = grep("odds ratio", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
-  aliases[[6]] = grep("hazard|^HR$|Survival HR|Change in HR|RR or HR|HR and variance", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
-  aliases[[7]] = grep("rate ratio", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
-  aliases[[8]] = grep("risk dif", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
-  aliases[[9]] = grep("rate dif", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
-  aliases[[10]] = grep("prevent[ed ]*fracti", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
-  aliases[[11]] = grep("hedges", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
-
+  aliases[[1]] = grep("risk ratio|^RR$|RR Ratio[s]*|IRR|relat[ive]* risk", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
+  aliases[[2]] = grep("^mean dif[ference]*$|^mean dif[ference]*\\s+.[^%]|^MD", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
+  aliases[[3]] = grep("change in", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
+  aliases[[4]] = grep("Std. mean|SMD", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
+  aliases[[5]] = grep("hedges", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
+  aliases[[6]] = sort(grep("% change|% increase|% rate|risk difference \\(%\\)|mean difference \\[%\\]|changes in MVC \\[%]|changes \\[%]",
+                           names, perl = TRUE, ignore.case = TRUE, value = TRUE))
+  aliases[[7]] = grep("^odds ratio[s]*|[^peto] odds ratio", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
+  aliases[[8]] = grep("peto", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
+  aliases[[9]] = grep("hazard|^HR$|Survival HR|HR and variance", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
+  aliases[[10]] = grep("rate ratio", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
+  aliases[[11]] = grep("risk dif[ference]*$|risk dif[ference]*\\s+.[^%]", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
+  aliases[[12]] = grep("^rate dif", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
+  aliases[[13]] = grep("prevented fraction", names, perl = TRUE, ignore.case = TRUE, value = TRUE)
+  
   
   
   for (i in 1:length(aliases)) {

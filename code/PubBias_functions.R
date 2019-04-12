@@ -96,6 +96,31 @@ pb.rev = function(data) {
   return(data.rev)
 }
 
+## Fetches the titles for each review and stores data as file
+## input is the database
+pb.fetchTitles = function(data) {
+  file_fetch = 'oadoi_fetch.RData'
+  table = data.frame(file.nr = data$file.nr, doi=data$doi,
+                     rev.title = NA, rev.year = NA)
+  table$doi = tolower(as.character(table$doi))
+  table = table[!duplicated(table),]
+  
+  # do not fetch if file already exists, takes ~30 min to get 5,000 titles
+  if (file.exists(file.path(PATH_RESULTS, file_fetch))) {
+    load(file.path(PATH_RESULTS, file_fetch))
+  } else {
+    fetch = oadoi_fetch(dois = table$doi, email = "simon.schwab@uzh.ch")
+    save(fetch, file = file.path(PATH_RESULTS, file.fetch))
+  }
+  
+  # merge fetched data with database
+  idx = match(fetch$doi, table$doi)
+  table$rev.title = rep(NA, nrow(table))
+  table$rev.year = rep(NA, nrow(table))
+  table$rev.title[idx] = fetch$title
+  table$rev.year[idx] = fetch$year
+  return(table)
+}
 ## Search database with a keyword and returns all rows that match.
 ## Searches outcome, study name and comparison fields. Using doi=TRUE
 ## will only return the doi reviews containing the keyword.

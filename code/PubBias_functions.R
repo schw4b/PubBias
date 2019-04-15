@@ -142,24 +142,19 @@ pb.createReviews = function(data) {
   return(table)
 }
 
-## Search database with a keyword and returns all rows that match.
-## Searches outcome, study name and comparison fields. Using doi=TRUE
-## will only return the doi reviews containing the keyword.
-
-pb.search = function(keyword, data, doi=TRUE) {
-  idx1 = grepl(keyword, data$outcome.name, ignore.case = T)
-  idx2 = grepl(keyword, data$comparison.name, ignore.case = T)
-  idx3 = grepl(keyword, data$study.name, ignore.case = T)
-  
-  if (doi) {
-    mydois = unique(data[idx1|idx2|idx3, c('file.nr','doi')])
-    d = oadoi_fetch(dois = mydois$doi, email = "simon.schwab@uzh.ch")
-    assert(all(tolower(mydois$doi) == tolower(d$doi))) # test that fetching returns same doi and same order
-    return(data.frame(mydois, title=d$title, year=d$year))
+## Search keyword in database and returns all rows that match.
+pb.search = function(keyword, data) {
+  if ("rev.title" %in% names(data)) {
+    idx1 = grepl(keyword, data$rev.title, ignore.case = T)
+    return(data[idx1,c("file.nr", "doi", "rev.title", 
+                       "rev.year","nr.studies","pool.nr1","pool.nr2")])
     
   } else {
-  return(data[idx1|idx2|idx3,c("file.nr","comparison.name","outcome.name","outcome.measure", 
-                               "subgroup.name","study.name","total1","total2")])
+    idx1 = grepl(keyword, data$outcome.name, ignore.case = T)
+    idx2 = grepl(keyword, data$comparison.name, ignore.case = T)
+    idx3 = grepl(keyword, data$study.name, ignore.case = T)
+    return(data[idx1|idx2|idx3,c("file.nr","comparison.name","outcome.name","outcome.measure", 
+                                 "subgroup.name","study.name","total1","total2")])
   }
   
 }

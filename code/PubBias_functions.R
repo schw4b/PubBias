@@ -19,6 +19,7 @@ pb.readData = function(path, file) {
                                "numeric", "numeric",                 # group 2    :  mean, se
                                "numeric"))                           # total N
   # some cleanup
+  data$N = NULL # this colums has all NA's
   data$outcome.measure[grep("&#223;-agonist", data$outcome.measure)] = "beta-agonist"
   data$outcome.measure[grep("Hedge[s ]*&#180", data$outcome.measure)] = "Hedges' g"
   
@@ -77,28 +78,14 @@ pb.pool = function(data) {
     data$pool.nr[from[i]:to[i]] = c
     c = c + 1
   }
+  return(data)
 }
 
-# Creates a database for reviews (each line one review).
-pb.rev = function(data) {
-  
-  Nm = length(unique(data$file.nr))
-  data.rev = data[!duplicated(data$file.nr), c(1, 3)]
-  assert(nrow(data.rev) == Nm)
-  rownames(data.rev) = 1:Nm
-  
-  data.rev$study.count = rep(NA, Nm)
-  id = unique(data$file.nr)
-  for (i in 1:Nm) {
-    idx = data$file.nr == id[i]
-    data.rev$study.count[i] = length(unique(data[idx,]$study.name))
-  }
-  return(data.rev)
-}
-
-## Fetches the titles for each review and stores data as file
-## input is the database
-pb.fetchTitles = function(data) {
+## Creates a database of reviews (each line one review).
+## Fetches the title, year for each review
+## Adds additional variables
+library(roadoi)
+pb.createReviews = function(data) {
   file_fetch = 'oadoi_fetch.RData'
   table = data.frame(file.nr = data$file.nr, doi=data$doi,
                      rev.title = NA, rev.year = NA)
@@ -119,12 +106,46 @@ pb.fetchTitles = function(data) {
   table$rev.year = rep(NA, nrow(table))
   table$rev.title[idx] = fetch$title
   table$rev.year[idx] = fetch$year
+  
+  # populate review database with important variables
+  
+  # add number of studies per review and pool variables
+  table$nr.studies = rep(NA, nrow(table))
+  table$pool.nr1 = rep(NA, nrow(table)) 
+  table$pool.outName1 = rep(NA, nrow(table))
+  table$pool.count1 = rep(NA, nrow(table)) # nr of outcomes that can be pooled
+  table$pool.nr2 = rep(NA, nrow(table))
+  table$pool.outName2 = rep(NA, nrow(table)) 
+  table$pool.count2 = rep(NA, nrow(table))
+  
+  for (i in 1:nrow(table)) {
+    d = subset(data, data$file.nr == table$file.nr[i])
+    table$nr.studies[i] = length(unique(d$study.name))
+    s = sort(table(d$pool.nr), decreasing = TRUE) # count and sort pool.nr
+    
+    table$pool.nr1[i] = names(s[1])
+    table$pool.nr2[i] = names(s[2])
+    
+    table$pool.count1[i] = s[1]
+    table$pool.count2[i] = s[2]
+    
+    # get autcome name
+    on = d$outcome.name[d$pool.nr == as.numeric(names(s[1]))]
+    assert(length(unique(on)) == 1) # check all the same outcomes
+    table$pool.outName1[i] = on[1]
+    
+    on = d$outcome.name[d$pool.nr == as.numeric(names(s[2]))]
+    assert(length(unique(on)) == 1) # check all the same outcomes
+    table$pool.outName2[i] = on[2]
+  }
+  
   return(table)
 }
+
 ## Search database with a keyword and returns all rows that match.
 ## Searches outcome, study name and comparison fields. Using doi=TRUE
 ## will only return the doi reviews containing the keyword.
-library(roadoi)
+
 pb.search = function(keyword, data, doi=TRUE) {
   idx1 = grepl(keyword, data$outcome.name, ignore.case = T)
   idx2 = grepl(keyword, data$comparison.name, ignore.case = T)

@@ -147,13 +147,14 @@ pb.search = function(keyword, data) {
   if ("rev.title" %in% names(data)) {
     idx1 = grepl(keyword, data$rev.title, ignore.case = T)
     return(data[idx1,c("file.nr", "doi", "rev.title", 
-                       "rev.year","nr.studies","pool.nr1","pool.nr2")])
+                       "rev.year","nr.studies","pool.count1","pool.count2")])
     
   } else {
     idx1 = grepl(keyword, data$outcome.name, ignore.case = T)
     idx2 = grepl(keyword, data$comparison.name, ignore.case = T)
     idx3 = grepl(keyword, data$study.name, ignore.case = T)
-    return(data[idx1|idx2|idx3,c("file.nr","comparison.name","outcome.name","outcome.measure", 
+    idx4 = grepl(keyword, data$subgroup.name, ignore.case = T)
+    return(data[idx1|idx2|idx3|idx4,c("file.nr","comparison.name","outcome.name","outcome.measure", 
                                  "subgroup.name","study.name","total1","total2")])
   }
   

@@ -25,6 +25,7 @@ opts_chunk$set(
 \begin{document}
 
 \maketitle
+\tableofcontents
 
 \sloppy
 
@@ -42,7 +43,7 @@ FILE = 'cochrane_2018-06-09.csv'
 PATH_DATA = file.path(PATH, 'data')
 PATH_CODE = file.path(PATH, 'code')
 PATH_RESULTS = file.path(PATH, 'results')
-PATH_FIGURES = file.path(PATH_RESULTS, 'figures')
+PATH_FIGURES = file.path(PATH_RESULTS, 'plots')
 
 file_results = "pb.RData"
 @
@@ -53,23 +54,24 @@ library(testit)
 library(data.table)
 @
 
-
-<<Load data and data cleaning>>=
+<<Load data and data cleaning, message=FALSE>>=
 # load some functions
 source(file.path(PATH_CODE, 'PubBias_functions.R'))
 
-data = pb.readData(path = PATH_DATA, file = FILE)
-tmp = pb.clean(data)
-data = tmp[[1]]
-aliases = tmp[[2]]
-
-# this takes longer so we save this in a RData file
+# skip preprocessing if file exists, as this takes a few minutes
 if (file.exists(file.path(PATH_RESULTS, file_results))) {
   load(file.path(PATH_RESULTS, file_results))
+  
 } else {
-  data.pool = pb.pool(data)
-  data.rev  = pb.rev(data)
-  save(data.pool, data.rev, file = file.path(PATH_RESULTS, file_results))
+  data = pb.readData(path = PATH_DATA, file = FILE)
+  tmp  = pb.clean(data)
+  data = tmp[[1]]
+  aliases = tmp[[2]]
+  
+  data = pb.pool(data) # takes a few minutes
+  data.rev  = pb.createReviews(data) # without fetch data, this can go 30 min.
+
+  save(data, data.rev, aliases, file = file.path(PATH_RESULTS, file_results))
 }
 
 N = nrow(data)  # no. of ourcomes
@@ -82,11 +84,11 @@ Ns = length(unique(data$study.name)) # no. of unique single studies
 The objective of this document is an overview of the content and the structure of the database containing thousends of meta-analyes and systematic reviews by the Cochrane Library. \footnote{\url{https://www.cochranelibrary.com})}
 \section{Database content}
 
-There are a total of \Sexpr{prettyNum(Nm, big.mark=",")} systematic reviews with \Sexpr{prettyNum(sum(data.rev$study.count), big.mark=",")} studies in the database. Some of the studies may be shared between reviews. The total number of unique studies in the database is at least \Sexpr{prettyNum(Ns, big.mark=",")} or larger (it may be possible that two toally different studies have an equal author name and year). We explore a review as a showcase to fully understand the structure and content of the database.
+There are a total of \Sexpr{prettyNum(Nm, big.mark=",")} systematic reviews with \Sexpr{prettyNum(sum(data.rev$study.count), big.mark=",")} studies in the database. Some of the studies may be shared between reviews. The total number of studies in the database is \Sexpr{prettyNum(Ns, big.mark=",")}. We explore a review as a showcase to fully understand the structure and content of the database.
 
 \subsection{Showcase 1: Acupuncutre in patients with asthma}
 
-The objective of this review \citep{McCarney2004-ou} was to assess whether there is evidence from randomized controlled trials (RCTs) that asthma patients benefit from acupuncture (review no. 3). Database entries are shown in Tables \ref{tab:acu1} and \ref{tab:acu2}. The review included 12 studies. This number has been determined after searching for studies on databases (CENTRAL, MEDLINE, etc.) using the keywords \enquote{asthma} and \enquote{acupunctur*}. Studies from the search results were evaluated for inclusion. Some common reasons for exclusion were, for example, no control group, no randomization, or RCT in another domain, such as acupunture with healthy individuals or with individuals having other lung conditions. The primary outcome was lung function that can be determined by three measures, these are
+The objective of this review \citep{McCarney2004-ou} was to assess whether there is evidence from randomized controlled trials (RCTs) that asthma patients benefit from acupuncture (\texttt{file.nr = 3}). The review included 12 studies. This number has been determined after searching for studies on databases (CENTRAL, MEDLINE, etc.) using the keywords \enquote{asthma} and \enquote{acupunctur*}. Studies from the search results were evaluated for inclusion. Some common reasons for exclusion were, for example, no control group, no randomization, or RCT in another domain, such as acupunture with healthy individuals or with individuals having other lung conditions. The primary outcome was lung function that can be determined by three measures, these were
 
 \begin{itemize}
   \item PERF (peak expiratory flow rates),
@@ -110,17 +112,10 @@ Comparison 3 & Needle acupuncture versus sham laser acupuncture\\
 \label{tab:comparisons}
 \end{table}
 
-Secondary outcomes were symptoms, medication use, quality of life and two more. In the data synthesis SDM or WMD were used for continuous variables, and risk ratios for dicotomous variables. Acupuncture strategies differend considerably between studies. There were two types of acupunture, needles and laser. There were also different types of control conditions, for example targeting non acupuncture points, targeting acupuncture points not related to asthma, or a pseudo intervention. The review analyzed needle and laser acupuncture separately and derrived three types of comparisons, see Table \ref{tab:comparisons}. The studies also reported various types of outcomes. The database entries for a review consists of all the outcomes reported across all the single studies (and potentially subgroups and comparisons). The subgroups in this review all had different outcomes, however, it may be possible that in a study, the same outcome has been recorded in different subgroups. Likewise, the studies in this review performed one of the three comparisons, however, it may be possible that one study includes more than one comparisons.
+Secondary outcomes were symptoms, medication use, quality of life and two more. In the data synthesis SMD or WMD were used for continuous variables, and risk ratios for dicotomous variables. Acupuncture strategies differend considerably between studies. There were two types of acupunture, needles and laser. There were also different types of control conditions, for example targeting non acupuncture points, targeting acupuncture points not related to asthma, or a pseudo intervention. The review analyzed needle and laser acupuncture separately and derrived three types of comparisons, see Table \ref{tab:comparisons}. The studies also reported various types of outcomes. The database entries for a review consists of all the outcomes reported across all the single studies (and potentially subgroups and comparisons). The main database entries are shown in Tables \ref{tab:acu1} and \ref{tab:acu2}.
 
-We found three potential errors in the data. One entry of Tandon 1991 is comparison 1 and all the other entries are comparison 2. However, Tandon 1991 is declared a laser acupunture study (and not laser and needle acupuncture study). Hirsch 1994 is a study with children and has three entries are labeled accordingly in \texttt{subgroup.name}. However, in \texttt{subgroup.nr} one entry is a 1 while the other two entries contain a 2. Last, Biernacki 1998 has a missing value in one of its entries in \texttt{subgroup.name} and a 0 in \texttt{subgroup.nr} while the other entries contain "Adult" and "1".
 
-In sum, there can be a database entry per outcome, per subgroup, per comparison and per study. In this review, identical outcomes within different comparison have been synthetized with respect to subgroups. In this review, the subgroups had different outcome numbers so it was suffucient to pool across comparison and outcome.
-
-Within each comparisons, the outcomes are categorized in numbers (outcome number). For example, Shapira 2002 and Tashkin 1985 both report outcome number 4. However, between comparisons, the outcome number cannot be compared as there is a different numbering. There are 15 outcomes in comparison 1, 11 in comparison 2, and two in comparison 3, see Table \ref{tab:outcomes}.
-
-In this review, in only two primary main outcomes and one secondary outcome pooling was possible, see Table \ref{tab:pooling}.
-
-<<Table single meta-analysis, results="asis">>=
+<<Table showcase single meta-analysis, results="asis">>=
 tab = data[data$file.nr == 3,c(6:ncol(data))]
 idx = order(tab$study.name)
 tab$comparison.name = strtrim(tab$comparison.name, 7)
@@ -137,29 +132,20 @@ print(xtable(tab[idx,1:8], caption = "Database entries of a Cochrane systematic 
              acupuncture for chronic asthma. Table is sorted by study name. Numbers on the
              left are the corresponding line number in the database.",
              label="tab:acu1"),
-      size = "\\scriptsize", table.placement="hb")
+      size = "\\scriptsize", table.placement="!ht")
 
-print(xtable(tab[idx,9:ncol(tab)-1], caption = "Database entries of a Cochrane systematic 
+print(xtable(tab[idx,8:(ncol(tab)-2)], caption = "Database entries of a Cochrane systematic 
              review on acupuncture for chronic asthma. Table is sorted by study name.",
              label="tab:acu2"), # not showing the renames outcome measures
-      size = "\\scriptsize", table.placement="ht")
+      size = "\\scriptsize", table.placement="!ht")
 @
 
-<<Tables comparison outcomes, results="asis">>=
-tab = data[data$file.nr == 3,c(6:ncol(data))]
-tab = tab[, c("comparison.nr", "outcome.nr", "outcome.name", "subgroup.name", "study.name")]
-tab$outcome.name = strtrim(tab$outcome.name, 40)
-tab$subgroup.name = strtrim(tab$subgroup.name, 10)
-colnames(tab)[1] = "comp.nr"
-colnames(tab)[2] = "out.nr"
-colnames(tab)[4] = "sub.name"
-print(xtable(tab, caption = "Organization of comparisons and outcomes",
-             label="tab:outcomes"),
-      size = "\\scriptsize", table.placement="!hb")
-@
+We found three potential errors in the data. One entry of Tandon 1991 is \texttt{comparison.nr = 1} while all the other entries are \texttt{comparison.nr = 2}, however, Tandon 1991 is declared a laser acupunture study. Hirsch 1994 is a study with children, see \texttt{subgroup.name}, however, there are some consistencies in \texttt{subgroup.nr}. Last, Biernacki 1998 has a missing value in one of its entries in \texttt{subgroup.name} and a 0 in \texttt{subgroup.nr} while the other entries contain "Adult" and "1".
+
+In sum, there can be a database entry per study, comparison, outcome, and subgroup. In this review, identical outcomes of the same comparison have been synthetized with respect to subgroups. Within each comparisons, the outcomes are categorized in numbers \texttt{outcome.nr}. For example, Shapira 2002 and Tashkin 1985 both report \texttt{outcome.nr = 4}. The \texttt{outcome.nr} starts form 1 on within each comarison, for example, there are 15 outcomes (1--15) in comparison 1, 11 (1--11) in comparison 2, and two (1--2) in comparison 3, see Table \ref{tab:pool}. In this review, in only two primary main outcomes and one secondary outcome pooling was possible. We created a new variable \texttt{pool.nr}, outcomes with the same pool.nr can be combined for meta-analyses because they belong to the same review and have the same comparison, outcome and subgroup.
 
 <<Table Pooling, results="asis">>=
-tab = data.pool[data.pool$file.nr == 3, c("comparison.nr", "comparison.name", "outcome.nr", "outcome.name",
+tab = data[data$file.nr == 3, c("comparison.nr", "comparison.name", "outcome.nr", "outcome.name",
                                           "subgroup.nr", "subgroup.name", "study.name", "pool.nr")]
 tab$comparison.name = strtrim(tab$comparison.name, 8)
 tab$subgroup.name = strtrim(tab$subgroup.name, 8)
@@ -169,15 +155,15 @@ colnames(tab)[2] = "comp.name"
 colnames(tab)[3] = "out.nr"
 colnames(tab)[5] = "sub.nr"
 colnames(tab)[6] = "sub.name"
-print(xtable(tab, caption = "The pool number indicates which studies have the same subgroup,
-outcome, and comparison. If these variables mach, data can be pooled. In this review data from 
-two studies were pooled for each of the three outcomes.", label="tab:outcomes"),
+print(xtable(tab, caption = "The pool number \\texttt{pool.nr} indicates which studies have the same subgroup,
+outcome, and comparison. If these variables mach, data can be pooled. In this review, data from 
+two studies were pooled for three outcomes \\texttt{outcome.nr} 4, 7, and 8).", label="tab:pool"),
 size = "\\scriptsize", table.placement="!hb")
 @
 
-\section{Merging aliases in outcome measures}
+\subsection{Merging aliases in outcome measures}
 
-The most common outcome measures in the database are risk ratios, mean differences, and odds ratios. However, the values in \texttt{outcome.measure} have inconsitencies that need to be resolved, for example "odds ratio", "Odds Ratio", "odds ratios", "OR", etc. Altogether, there are \Sexpr{length(unique(data$outcome.measure))} unique values present. We performed a cleanup of the values and defined a set of aliases for merging to reduce the heterogenity in values (Table \ref{tab:merge}). In Tables \ref{tab:freq1} and \ref{tab:freq2} the most frequent names are shown before and after merging. Risk ratios make up 50\% of all the outcome meausres. In Tables \ref{tab:aliases1}--\ref{tab:aliases\Sexpr{length(aliases)}}. 
+The most common outcome measures in the database are risk ratios, mean differences, and odds ratios. However, the values in \texttt{outcome.measure} have inconsitencies that need to be resolved, for example "odds ratio", "Odds Ratio", "odds ratios", "OR", etc. Altogether, there are \Sexpr{length(unique(data$outcome.measure))} unique outcome measures present. We performed a cleanup of the values and defined a set of aliases for merging to reduce the heterogenity in values (Table \ref{tab:merge}). In Tables \ref{tab:freq1} and \ref{tab:freq2} the relative frequencies of outcome measures are shown before and after merging. Risk ratios make up 50\% of all the outcome measures. In Tables \ref{tab:aliases1}--\ref{tab:aliases\Sexpr{length(aliases)}}, the aliases groups are shown that have been merged into one category, i.e. the top category in the tables.
 
 <<Tables, results="asis">>=
 tab = array(c(length(unique(data$outcome.measure)), 
@@ -186,7 +172,7 @@ rownames(tab) = "No. of unique outcome names"
 colnames(tab) = c("before merging", "after merging")
 print(xtable(tab, caption = "Outcome names have been merged to account for inconsistencies.",
              label="tab:merge"),
-      size = "\\scriptsize", table.placement="hb")
+      size = "\\scriptsize", table.placement="h")
 
 # most k common outcome measures
 k = 10
@@ -198,25 +184,75 @@ tab1 = rbind(tab1, others=100-sum(tab1))
 colnames(tab1) = "Percent"
 print(xtable(tab1, caption = "Most frequent outcome measures before merging.",
              label="tab:freq1"),
-      size = "\\scriptsize", table.placement="hb")
+      size = "\\scriptsize", table.placement="h")
 
 tab2 = summary(as.factor(data$outcome.measure.new))
 tab2 = data.frame(round(sort(tab2, decreasing = TRUE)[1:k]/N*100, digits = 1))
 tab2 = rbind(tab2, others=100-sum(tab2))
 colnames(tab2) = "Percent"
-print(xtable(tab2, caption = "Most frequent outcome measures after merging..",
+print(xtable(tab2, caption = "Most frequent outcome measures after merging.",
              label="tab:freq2"),
-      size = "\\scriptsize", table.placement="hb")
+      size = "\\scriptsize", table.placement="h")
 @
 
 <<Aliases, results="asis">>=
 
 for (i in 1:length(aliases)) {
   names = aliases[[i]]
-  print(xtable(as.data.frame(names), caption = "List of outcome measure and aliases that
-             are merged.", label=paste0("tab:aliases",i)), size = "\\scriptsize")
+  print(xtable(as.data.frame(names), caption = "List of outcome measure that are aliases and have been merged.",
+               label=paste0("tab:aliases",i)), size = "\\scriptsize")
 }
 
+@
+
+\subsection{Table of Systematic Reviews}
+We created a data frame \texttt{data.rev} of reviews. Each row is a systematic review/meta-analysis. We fetched the title and year of all the reviews with the package \texttt{roadoi} as this information was not in the database. We added the outcomes that can be pooled across the largest number of studies in a review based on the \\texttt{pool.nr}. We selected the two outcomes that have the highest counts, see Table \ref{tab:reviews}. For example, the review "Antibiotic prophylaxis" (3rd row) contained 92 studies, of which 83 studies with outcome "Maternal endometritis" and 82 outcomes "Maternal wound infection" can be pooled. These are the outcomes that belong to the same comparison and subgroup of a reviewe, however, whether this reflects a primary or a secondary outcome of a systematic review is unclear. This had to be determined by looking at the review paper.
+
+
+<<meta-analysis, results="asis">>=
+idx = order(data.rev$pool.count1, decreasing = TRUE)
+tab = data.rev[idx, c("file.nr", "rev.title", "rev.year", "nr.studies", "pool.count1", "pool.outName1", "pool.count2", "pool.outName2")]
+tab$rev.title = strtrim(tab$rev.title, 50)
+tab$pool.outName1 = strtrim(tab$pool.outName1, 32)
+tab$pool.outName2 = strtrim(tab$pool.outName2, 32)
+
+rownames(tab)= NULL
+print(xtable(tab[1:40,], caption = "Reviews with most frequent outcomes that can be pooled for meta-analysis.",
+             label="tab:reviews"),
+      size = "\\scriptsize", table.placement="h", floating.environment = "sidewaystable")
+@
+
+\subsection{Searching the database}
+A function \texttt{pb.search(keyword, data)} to look for specific keywords in the data is available. If data is the complete database \texttt{data} keywords are matched againts outcome names, comparisons, subgroups, and study names. If data is the table of reviews \texttt{data.rev} keywords are matched against the title of the review.
+
+\section{A meta-analysis example}
+We use the review "Fluvastatin for lowering lipids" \citep{Adams2018-bb} to conduct a meta-analysis. The data is accessed by \texttt{file.nr = 6181}. In this review, the primary outcome is LDL-cholesterol, the secondary outcome is the total cholesterol. There are various comparisons of different dosages of Fluvastatin vs control, from 2.5 mg to 80 mg. We use \texttt{comparison.nr = 4} and \texttt{outcome.nr = 1}. This corresponds to the \texttt{pool.nr1 = 181863} and is the comparison "20 mg vs control" and the outcome "LDL-cholesterol". There are no subgroups. The outcome measure is the mean difference. The result is in Figure \ref{fig:forest} and can be compared to section "Analysis 4.1" in the review paper \footnote{\url{https://www.cochranelibrary.com/cdsr/doi/10.1002/14651858.CD012282.pub2/}}. 
+<<Forrest plot, results="asis">>=
+d = data[data$pool.nr==181863, ]
+m =metacont(n.e = total1, mean.e = mean1, sd.e = sd1,
+         n.c = total2, mean.c = mean2, sd.c = sd2, data = d)
+pdf(file=file.path(PATH_FIGURES,'forestplot.pdf'))
+forest(m, xlab = "Mean difference in LDL-cholesterol", fontsize = 10, layout = "JAMA",studlab = d$study.name)
+tmp = dev.off()
+
+# fixed effect analysis
+MD = d$mean1 - d$mean2
+varMD = d$sd1^2/d$total1 + d$sd2^2/d$total2
+theta_f = sum(MD/varMD) / sum(1/varMD)
+@
+
+\begin{figure}
+\begin{center}
+  \includegraphics[width=15cm]{plots/forestplot.pdf}
+  \caption{Forest plot. Effect of fluvastatin on LDL-cholesterol.}
+  \label{fig:forest}
+\end{center}
+\end{figure}
+
+<<Test for asymmetrie>>=
+#funnel(m)
+#metabias(m, method="linreg")
+#metabias(x = d$effect, seTE = d$se, method="linreg")
 @
 
 

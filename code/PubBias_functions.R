@@ -26,6 +26,47 @@ pb.readData = function(path, file) {
   return(data)
 }
 
+# Reads the data
+pb.readData2 = function(path, file) {
+  
+  data = read.csv(file.path(path, file),
+                  colClasses=c("character",                          # id
+                               "integer", "character", "character",  # comparison :  nr, name, id
+                               "integer", "character", "character",  # outcome    :  nr, name, measure
+                               "character", "character",             #               id, flag
+                               "integer",  "character", "character", # subgroup   :  nr, name, id
+                               "character","character","character",  # study      :  id, name, year
+                               "character",                          #               data_source  
+                               "numeric", "numeric",                 # effect, std.err.
+                               "numeric", "numeric",                 # group 1    :  events, total
+                               "numeric", "numeric",                 # group 1    :  mean, sd
+                               "numeric", "numeric",                 # group 2    :  events, total
+                               "numeric", "numeric"                  # group 2    :  mean, sd
+                  ))
+  
+  # Fix invalid years from study.year
+  idx_invalid = (!grepl("^(19|20)\\d{2}$", data$study.year, perl = TRUE))
+  idx_hasyear = grepl(".*(19|20)(\\d{2}).*", data$study.year, perl = TRUE)
+  fixme = data$study.year[idx_invalid & idx_hasyear]
+  fixed = gsub(".*(19|20)(\\d{2}).*", "\\1\\2", fixme, perl = TRUE)
+  data$study.year[idx_invalid & idx_hasyear] = fixed
+  
+  # Fix remaining invalid years from study.id
+  idx_invalid = (!grepl("^(19|20)\\d{2}$", data$study.year, perl = TRUE))
+  idx_hasyear = grepl(".*(19|20)(\\d{2}).*", data$study.id, perl = TRUE)
+  fixme = data$study.id[idx_invalid & idx_hasyear]
+  fixed = gsub(".*(19|20)(\\d{2}).*", "\\1\\2", fixme, perl = TRUE)
+  data$study.year[idx_invalid & idx_hasyear] = fixed
+  
+  # set remaining to NA
+  idx_invalid = (!grepl("^(19|20)\\d{2}$", data$study.year, perl = TRUE))
+  data$study.year[idx_invalid] = NA
+  data$study.year = as.numeric(data$study.year)
+  
+  return(data)
+}
+
+
 # Cleans the raw data with some reg expressions
 pb.clean = function(data) {
   
@@ -84,12 +125,12 @@ pb.pool = function(data) {
 ## Creates a database of reviews (each line one review).
 ## Fetches the title, year for each review
 ## Adds additional variables
-library(roadoi)
+#library(roadoi)
 pb.createReviews = function(data) {
   file_fetch = 'oadoi_fetch.RData'
   table = data.frame(file.nr = data$file.nr, doi=data$doi,
                      rev.title = NA, rev.year = NA)
-  table$doi = tolower(as.character(table$doi))
+  table$doi = as.character(table$doi)
   table = table[!duplicated(table),]
   
   # do not fetch if file already exists, takes ~30 min to get 5,000 titles
@@ -101,7 +142,7 @@ pb.createReviews = function(data) {
   }
   
   # merge fetched data with database
-  idx = match(fetch$doi, table$doi)
+  idx = match(tolower(fetch$doi), tolower(table$doi))
   table$rev.title = rep(NA, nrow(table))
   table$rev.year = rep(NA, nrow(table))
   table$rev.title[idx] = fetch$title
@@ -155,9 +196,103 @@ pb.search = function(keyword, data) {
     idx3 = grepl(keyword, data$study.name, ignore.case = T)
     idx4 = grepl(keyword, data$subgroup.name, ignore.case = T)
     return(data[idx1|idx2|idx3|idx4,c("file.nr","comparison.name","outcome.name","outcome.measure", 
-                                 "subgroup.name","study.name","total1","total2")])
+                                      "subgroup.name","study.name","total1","total2")])
   }
   
+}
+
+library(rvest)
+pb.crawlCochrane = function(dois) {
+  
+  mylist = list() # stores a list of data frames per review with all the studies
+  
+  # iterate through reviews
+  for (m in 1:length(dois)) {
+    
+    print(paste("review nr:", m))
+    url = paste0("https://www.cochranelibrary.com/cdsr/doi/", dois[m], "/references")
+    src = read_html(url)
+    #if (m %% 8 == 0) { Sys.sleep(40) } # or we get blacklisted for a while
+    Sys.sleep(7)
+    studies = html_nodes(css="div.bibliographies.references_includedStudies", x=src)
+    n = length(studies)
+    
+    studies.df = data.frame(refShort = rep(NA, n), authors = rep(NA, n), title = rep(NA, n),
+                            journal = rep(NA, n), year = rep(NA, n), doi = rep(NA, n),
+                            timesCited = rep(NA, n), refLong = rep(NA, n), error = rep(NA, n))
+    
+    for (i in 1:n) { # iterate through studies of a meta-analysis
+      
+      #print(i)
+      refShort = html_text(html_nodes(css="h4.title", x=studies[i]))
+      refShort = sub("\\s[\\{\\+].*", "", refShort)
+      # often multiple references are listed for each study called records
+      records = html_nodes(css="div.bibliography-section", x=studies[i])
+      
+      idx_rec = 1 # take fist record if the is only one
+      
+      # if there are more than one
+      if (length(records) > 1) {
+        # select correct record and remove all special characters like Malmström -> Malmstr.m and 2018a -> 2018
+        idx_rec = grep(paste0("^\\s*[the]*\\s*", gsub("[^A-Za-z0-9]+|[a-z]$", ".*", refShort)),
+                       html_text(records), ignore.case = TRUE)
+      }
+      
+      # if none has been found
+      if (length(idx_rec) == 0) {  # relax on year only (due Country codes like Chile, Europe as First Author name)
+        idx_rec = grep(sub("(.*)(19[0-9]{2}|20[0-9]{2})(.*)", "\\2", refShort, perl = TRUE), # match year 19** or 20**
+                       html_text(records), ignore.case = TRUE)
+      }
+      
+      # if there are still more than 1...
+      if (length(idx_rec) > 1) { # if more than one record, take the one that is cited more often, or has more links to original work
+        moreCites = rep(NA, length(idx_rec))
+        moreLinks = rep(NA, length(idx_rec))
+        for (j in 1:length(idx_rec)) { # for each duplicate with same shortRef author/year get citations and links
+          links = html_nodes("a", x = records[idx_rec[j]])
+          moreLinks[j] = length(links)
+          idx = grep("Web of Science", html_text(links), ignore.case = TRUE) # determine link times cited
+          timesCited = s(html_text(html_nodes(css="span", x=links[idx])))
+          moreCites[j] = as.numeric(sub(".*:", "", timesCited))
+        }
+        if (all(is.na(moreCites))) {
+          idx_rec = idx_rec[which.max(moreLinks)]
+        } else {
+          idx_rec = idx_rec[which.max(moreCites)]
+        }
+      }
+      
+      # if idx_rec is still not 1 then something went wrong.
+      if (length(idx_rec) != 1) {
+        authors = title = journal = year = doi = timesCited = refLong = NA
+        error = 1
+        
+      } else { # success: fetch and fill data
+        
+        refLong  = html_text(html_nodes(css="div", x=records[idx_rec]))
+        authors  = sub("\\..*", "", refLong)
+        title    = s(html_text(html_nodes(css="span.citation-title", x=records[idx_rec])))
+        journal  = gsub("^\\s|\\s$", "", s(html_text(html_nodes(css="span.citation", x=records[idx_rec]))))
+        year     = s(html_text(html_nodes(css="span.pubYear", x=records[idx_rec])))
+        
+        links    = html_nodes("a", x = records[idx_rec]) # select
+        idx = grep("Link to article", html_text(links), ignore.case = TRUE) # determine link doi
+        doi = s(html_attr(name="href", x=links[idx]))
+        
+        idx = grep("Web of Science", html_text(links), ignore.case = TRUE) # determine link times cited
+        timesCited = s(html_text(html_nodes(css="span", x=links[idx])))
+        timesCited = sub(".*:", "", timesCited)
+        error = 0
+        
+      }
+      # n x 9 data frame
+      studies.df[i,] = c(refShort, authors, title, journal, year, doi, timesCited, refLong, error)
+    }
+    
+    mylist[[m]] = studies.df
+  }
+  
+  return(mylist)
 }
 
 require(tidyverse)
@@ -194,4 +329,13 @@ pb.bias.cont <- function(data){
               trim.cont = trimfill(metacont(n.e = total1, mean.e = mean1, sd.e = sd1, n.c = total2, mean.c = mean2, sd.c = sd2))$k0 / n(),
               Q.cont = metacont(n.e = total1, mean.e = mean1, sd.e = sd1, n.c = total2, mean.c = mean2, sd.c = sd2)$Q) 
   return(metadat)
+}
+
+# Returns NA if string has length 0
+s <- function(object) {
+  if (length(object) == 0) {
+    return(NA)
+  } else {
+    return(object)
+  }
 }

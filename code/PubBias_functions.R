@@ -1,6 +1,13 @@
 # by Simon Schwab, 2019
 
 library(testit)
+require(tidyverse)
+require(meta)
+require(metasens)
+# require(biostatUZH)
+require(gridExtra)
+require(metafor)
+require(xtable)
 
 # Reads the data
 pb.readData = function(path, file) {
@@ -295,41 +302,8 @@ pb.crawlCochrane = function(dois) {
   return(mylist)
 }
 
-require(tidyverse)
-require(meta)
 
-pb.bias.bin <- function(data){
-  metadat <- data %>% filter(outcome.measure == "Risk Ratio" | outcome.measure == "Odds Ratio") %>% 
-    filter(file.nr != 3014) %>% #file.nr 3014 gibt eine seltsame Fehlermeldung, muss ausgeschlossen werden
-    filter(events1 > 0 | events2 > 0) %>% #comparisons mit events  = 0 ausschliessen
-    filter(total1 - events1 > 0 | total2 - events2 > 0) %>% #comparisons mit events = total ausschliessen - vertr??gt der alg. irgendwie nicht.
-    group_by(file.nr, outcome.nr, subgroup.nr) %>% #Die nachfolgenden Rechnungen werden jeweils f??r diese Gruppen gemacht.
-    mutate(n = n()) %>% filter(n > 9) %>% #Nur meta-analysen mit mehr als 9 comparisons behalten
-    summarize(doi = unique(doi), n = n(), #Summarize fasst alle daten in einer Gruppe zusammen
-              pval.peters.bin = metabias(metabin(event.e = events1, n.e = total1, event.c = events2, n.c = total2, sm = "OR"), method = "peters")$p.val,
-              pval.harbord.bin = metabias(metabin(event.e = events1, n.e = total1, event.c = events2, n.c = total2, sm = "OR"), method = "score")$p.val,
-              trim.bin = trimfill(metabin(event.e = events1, n.e = total1, event.c = events2, n.c = total2))$k0 / n(),
-              Q.bin = metabin(event.e = events1, n.e = total1, event.c = events2, n.c = total2, sm = "OR")$Q)
-  return(metadat)
-}     
 
-pb.bias.cont <- function(data){
-  metadat <- data %>% filter(outcome.measure == "Mean Difference" | outcome.measure == "Std. Mean Difference") %>%
-    filter(sd1 > 0 & sd2 > 0 ) %>% filter(!is.na(sd1) & !is.na(sd2)) %>% #Nur comparisons mit sinnvollen sd's behalten
-    filter(mean1 != 0 | mean2 != 0 ) %>% filter(!is.na(mean1) & !is.na(mean2)) %>% #Nur comparisons behalten die nicht beide means  = 0 haben
-    group_by(file.nr, outcome.nr, subgroup.nr) %>% #Siehe oben
-    mutate(n = n()) %>% filter(n > 9) %>% 
-    summarize(doi = unique(doi), n = n(),
-              pval.egger.cont = metabias(metacont(n.e = total1, mean.e = mean1, sd.e = sd1, n.c = total2, mean.c = mean2, sd.c = sd2), 
-                                         method = "linreg")$p.val,
-              pval.thomsom.cont = metabias(metacont(n.e = total1, mean.e = mean1, sd.e = sd1, n.c = total2, mean.c = mean2, sd.c = sd2), 
-                                           method = "mm")$p.val,
-              pval.begg.cont = metabias(metacont(n.e = total1, mean.e = mean1, sd.e = sd1, n.c = total2, mean.c = mean2, sd.c = sd2), 
-                                        method = "rank")$p.val,
-              trim.cont = trimfill(metacont(n.e = total1, mean.e = mean1, sd.e = sd1, n.c = total2, mean.c = mean2, sd.c = sd2))$k0 / n(),
-              Q.cont = metacont(n.e = total1, mean.e = mean1, sd.e = sd1, n.c = total2, mean.c = mean2, sd.c = sd2)$Q) 
-  return(metadat)
-}
 
 # Returns NA if string has length 0
 s <- function(object) {
@@ -337,5 +311,416 @@ s <- function(object) {
     return(NA)
   } else {
     return(object)
+  }
+}
+
+
+#Random effects meta-analysis function:
+meta.fct.ranef <- function(data){
+  outcome.type <- unique(data$outcome.type)
+  
+  if(outcome.type == "bin"){
+    meta.result <- rma.uni(yi = lrr, sei = sqrt(var.lrr),
+                           method = "PM", measure = "RR",  data = data, control = list(tau2.max = 300000))
+  }
+  
+  if(outcome.type == "cont"){
+    meta.result <- rma.uni(yi = smd, sei = sqrt(var.smd),
+                           method = "PM", measure = "SMD",  data = data, control = list(tau2.max = 300000))
+  }
+  
+  if(outcome.type == "surv"){
+    meta.result <- rma.uni(yi = effect, sei = se, subset = which(se != 0),
+                           method = "PM",  data = data, control = list(tau2.max = 300000))
+  }
+  
+  return(meta.result)
+}
+
+#Meta-analysis for standardized mean difference
+metagen.bincont <- function(data){
+  if (all(data$outcome.type == "bin")){
+    meta <- metagen(TE = smd.ordl, seTE = sqrt(var.smd.ordl), studlab = study.name, data, sm = "SMD")
+  } else{
+    meta <- metagen(TE = smd, seTE = sqrt(var.smd), studlab = study.name, data, sm = "SMD")
+  }
+}
+
+#Find expected effect bias direction:
+bias.side.fct <- function(outcome, lrr, var.lrr, smd, var.smd, effect, se){
+  alpha = 0.05
+  outcome <- unique(outcome)
+  
+  if(outcome == "bin"){
+    yi <- lrr
+    sei <- sqrt(var.lrr)
+  }
+  
+  if(outcome == "cont"){
+    yi <- smd
+    sei <- sqrt(var.smd)
+  }
+  
+  if(outcome == "surv"){
+    yi <- effect
+    sei <- se
+  }
+  
+  to.ommit <- which(is.na(yi) | is.na(sei))
+  
+  if(length(to.ommit) > 0){
+    yi <-  yi[-to.ommit]
+    sei <- sei[-to.ommit]
+  }
+  
+  to.ommit <- which(sei == 0)
+  
+  if(length(to.ommit) > 0){
+    yi <-  yi[-to.ommit]
+    sei <- sei[-to.ommit]
+  }
+  
+  if(sum(pnorm(yi/sei) < .05) == sum(pnorm(yi/sei, lower.tail=FALSE) < .05)){
+    side <- sign(est.fe <- rma(yi = yi, sei = sei, method = "FE")$b[1] )
+  } else{
+    side = ifelse(sum(pnorm(yi/sei) < .05) > sum(pnorm(yi/sei, lower.tail=FALSE) < .05), 
+                  -1, 1)
+  }
+  return(side)
+  
+}
+
+#Function to get one-sided p-value from publication bias test:
+onesided.p <- function(stat, side, n, test.type){
+  if(test.type == "reg"){
+    if(side == -1){
+      p <- pt(stat, df = n - 2)
+    } else{
+      p <- 1 - pt(stat, df = n -2)
+    }
+  } else if(side == -1){
+    p <- pnorm(stat)
+  } else{
+    p <- 1 - pnorm(stat)
+  }
+  return(p)
+}
+
+
+#Excess significance test function:
+tes.fct <- function(data){
+  outcome.type <- unique(data$outcome.type)
+  
+  if(outcome.type == "bin"){
+    yi <- data$lrr
+    sei <- sqrt(data$var.lrr)
+  }
+  
+  if(outcome.type == "cont"){
+    yi <- data$smd
+    sei <- sqrt(data$var.smd)
+  }
+  
+  if(outcome.type == "surv"){
+    yi <- data$effect
+    sei <- data$se
+  }
+  
+  
+  alpha = 0.05
+  
+  to.ommit <- which(is.na(yi) | is.na(sei))
+  
+  if(length(to.ommit) > 0){
+    yi <-  yi[-to.ommit]
+    sei <- sei[-to.ommit]
+  }
+  
+  to.ommit <- which(sei == 0)
+  
+  if(length(to.ommit) > 0){
+    yi <-  yi[-to.ommit]
+    sei <- sei[-to.ommit]
+  }
+  
+  ### FE meta-analysis for statistical power analysis
+  est.fe <- rma(yi = yi, sei = sei, method = "FE")$b[1] 
+  
+  side = ifelse(sum(pnorm(yi/sei) < .05) > sum(pnorm(yi/sei, lower.tail=FALSE) < .05), 
+                "left", "right")
+  
+  ### Compute statistical power and determine the number of observed 
+  # statistically significant results
+  if (side == "right") { 
+    pow <- pnorm(qnorm(alpha, lower.tail = FALSE, sd = sei), mean = est.fe,
+                 sd = sei, lower.tail = FALSE) #Probability to 
+    O <- sum(pnorm(yi/sei, lower.tail = FALSE) < alpha)
+  } else if (side == "left") {
+    pow <- pnorm(qnorm(alpha, sd = sei), mean = est.fe, sd = sei)
+    O <- sum(pnorm(yi/sei) < alpha)
+  }
+  
+  n <- length(yi) # Number of studies in meta-analysis
+  E <- sum(pow) # Expected number of statistically significant result  
+  
+  A <- (O - E)^2/E + (O - E)^2/(n - E) # Compute chi-square statistic
+  pval.chi <- pchisq(A, 1, lower.tail = FALSE) # Compute p-value
+  pval.chi <- ifelse(pval.chi < 0.5, pval.chi*2, (1-pval.chi)*2) #Van Aert's test
+  
+  pval.bin <- pbinom(q = O-1, size = n, prob = E/n, lower.tail = F)
+  
+  return(c(A = A, Expected = E, pval.chi = pval.chi, pval.bin = pval.bin, O = O, E = E, n = n))
+}
+
+
+
+#Dataset processing function to get transformed effect sizes, p-values, event counts with increments, etc. :
+
+pb.process2 <- function(data){
+  data <- data %>% mutate(meta.id = group_indices(., file.nr, comparison.nr, outcome.nr, subgroup.nr)) %>%
+    group_by(meta.id) %>% mutate(study.id = row_number()) %>% ungroup()
+  
+  data <- data %>% group_by(meta.id) %>%
+    mutate(n = n())  %>% ungroup() %>% group_by(file.nr) %>% 
+    mutate(dupl.id = dupl.finder(effects = effect, names = study.name, metas = meta.id), 
+           dupl.remove = dupl.max.finder(duplicate.index = dupl.id, study.number = n, metas = meta.id)) %>% ungroup()
+  
+  data <- data %>% mutate(study.year = ifelse(study.year < 2019, study.year, NA)) %>% 
+    mutate(study.year = ifelse(study.year > 1920, study.year, NA)) 
+  
+  data <- data %>% mutate(
+    outcome.type = ifelse(outcome.measure.new == "Hazard Ratio", "surv", 
+                          ifelse(outcome.measure.new == "Odds Ratio" | outcome.measure.new == "Risk Ratio" |
+                                   outcome.measure.new == "Peto Odds Ratio" | outcome.measure.new == "Risk Difference", "bin", "cont")),
+    outcome.type = ifelse(outcome.measure.new == "Rate Ratio" | outcome.measure.new == "Rate difference", "rate", outcome.type),
+    lrr = NA,
+    var.lrr = NA,
+    smd = NA,
+    var.smd = NA,
+    smd.pbit = NA,
+    var.smd.pbit = NA,
+    smd.ordl = NA,
+    var.smd.ordl = NA,
+    cor.phi = NA,
+    var.cor.phi = NA,
+    pval.single = NA, 
+    cor.pearson = NA,
+    var.cor.pearson = NA,
+    z = NA,
+    var.z = NA,
+    events1c = NA,
+    events2c = NA,
+    sig.single = NA)
+  cont.ind <- which(data$outcome.type == "cont" & !is.na(data$outcome.type))
+  
+  data[cont.ind, "outcome.type"] <- data[cont.ind, ] %>% 
+    mutate(outcome.type = ifelse(outcome.measure.new == "Std. Mean Difference"  | outcome.measure.new == "Mean Difference", 
+                                 outcome.type, NA)) %>% select(outcome.type)
+  
+  cont.ind <- which(data$outcome.type == "cont" & !is.na(data$outcome.type))
+  
+  bin.ind <- which(data$outcome.type == "bin" & !is.na(data$outcome.type))
+  data[bin.ind,] <- escalc(data = data[bin.ind,], ai = events1, n2i = total2, ci = events2, n1i = total1, 
+                           to = "only0",
+                           add = 1/2,
+                           measure = "RR", append = T, var.names = c("lrr", "var.lrr"))
+  data[bin.ind,] <- escalc(data = data[bin.ind,], ai = events1, n2i = total2, ci = events2, n1i = total1, 
+                           to = "only0",
+                           add = 1/2,
+                           measure = "PBIT", append = T, var.names = c("smd.pbit", "var.smd.pbit"))
+  data[bin.ind,] <- escalc(data = data[bin.ind,], ai = events1, n2i = total2, ci = events2, n1i = total1, 
+                           to = "only0",
+                           add = 1/2,
+                           measure = "OR2DL", append = T, var.names = c("smd.ordl", "var.smd.ordl"))
+  data[bin.ind,] <- escalc(data = data[bin.ind,], ai = events1, n2i = total2, ci = events2, n1i = total1, 
+                           to = "only0",
+                           add = 1/2,
+                           measure = "PHI", append = T, var.names = c("cor.phi", "var.cor.phi"))
+  
+  #What to do if there are 0/total cells:
+  data[bin.ind,] <- data[bin.ind,] %>% mutate(events1c  = case_when(events1 == 0 ~ events1 + 0.5,
+                                                                    events2 == 0 ~ events1 + 0.5,
+                                                                    events1 - total1 == 0 ~ events1 - 0.5,
+                                                                    events2 - total2 == 0 ~ events1 - 0.5,
+                                                                    TRUE ~ events1),
+                                              events2c = case_when(events2 == 0 ~ events2 + 0.5,
+                                                                   events1 == 0 ~ events2 + 0.5,
+                                                                   events2 - total2 == 0 ~ events2 - 0.5,
+                                                                   events1 - total1 == 0 ~ events2 - 0.5,
+                                                                   TRUE ~ events2))
+  
+  #What to do if there is one zero and one total:
+  data[bin.ind,] <- data[bin.ind,] %>% mutate(events1c  = case_when(events2 == 0 & events1 - total1 == 0 ~ events1,
+                                                                    events1 == 0 & events2 - total2 == 0 ~ events1,
+                                                                    TRUE ~ events1c),
+                                              events2c = case_when(events2 == 0 & events1 - total1 == 0 ~ events2,
+                                                                   events1 == 0 & events2 - total2 == 0 ~ events2,
+                                                                   TRUE ~ events2c))
+  
+  
+  nomean1.ind <- which(data$outcome.type == "cont" & is.na(data$mean1))
+  nomean2.ind <- which(data$outcome.type == "cont" & is.na(data$mean2))
+  noeffects.ind <- which(data$outcome.type == "cont" & !is.na(data$effect))
+  nomeans.ind <- intersect(nomean1.ind, nomean2.ind)
+  nomeans.ind <- intersect(noeffects.ind, nomeans.ind) #no means, but a (std.) mean difference is provided.
+  
+  data[nomeans.ind,"mean1"] <- data[nomeans.ind,"effect"]
+  data[nomeans.ind,"mean2"] <- 0
+  
+  data[cont.ind,] <- escalc(data = data[cont.ind,], m1i = mean1, m2i = mean2, 
+                            sd1i = sd1, sd2i = sd2, n1i = total1, n2i = total2,
+                            measure = "SMD" , append = T, var.names = c("smd", "var.smd"))
+  
+  inpute.given.ind <- which(is.na(data[cont.ind, "smd"]) & data[cont.ind, "outcome.measure.new"] == "Std. Mean Difference")
+  data[inpute.given.ind, "smd"] <- data[inpute.given.ind, "effect"]
+  data[inpute.given.ind, "var.smd"] <- data[inpute.given.ind, "se"]^2
+  
+  surv.ind <- which(data$outcome.type == "surv")
+  data[surv.ind, "pval.single"] <- data[surv.ind, ] %>% mutate(pval.single = 2*(1-pnorm(abs((effect)/se)))) %>% select(pval.single)
+  
+  rate.ind <- which(data$outcome.type == "rate")
+  data[rate.ind, "pval.single"] <- data[rate.ind, ] %>% mutate(pval.single = 2*(1-pnorm(abs((effect)/se)))) %>% select(pval.single)
+  
+  data[cont.ind, "pval.single"] <- data[cont.ind, ] %>% 
+    mutate(t = (mean1 - mean2)/(sqrt((((total1-1)*sd1^2) + (total2-1)*sd2^2)/(total1 + total2 -2))*sqrt((1/total1)+(1/total2))), 
+           pval.single = 2*(1-pt(abs(t), df = total1 + total2 - 2))) %>% select(pval.single)
+  
+  sd1.0 <- which(data$outcome.type == "cont" & data$sd1 == 0) #Such that p-value here is not equal to zero
+  sd2.0 <- which(data$outcome.type == "cont" & data$sd2 == 0)
+  sd.0 <- union(sd1.0, sd2.0)
+  data[sd.0, "pval.single"] <- NA
+  
+  data[bin.ind, "pval.single"] <- data[bin.ind, ] %>% 
+    mutate(pval.single = 2*(1-pnorm(abs(lrr/sqrt(var.lrr))))) %>% select(pval.single)
+  
+  data[cont.ind, "cor.pearson"]<- data[cont.ind, ] %>% mutate(
+    a = ((total1 + total2)^2)/(total1*total2),
+    cor.pearson  = smd/sqrt((smd^2) + a),
+    var.cor.pearson = ((a^2)*var.smd)/(((smd^2)+a)^3)) %>% select(cor.pearson)
+  
+  data[cont.ind, "var.cor.pearson"]<- data[cont.ind, ] %>% mutate(
+    a = ((total1 + total2)^2)/(total1*total2),
+    cor.pearson  = smd/sqrt((smd^2) + a),
+    var.cor.pearson = ((a^2)*var.smd)/(((smd^2)+a)^3)) %>% select(var.cor.pearson)
+  
+  data[bin.ind, "cor.pearson"]<- data[bin.ind, ] %>% mutate(
+    a = ((total1 + total2)^2)/(total1*total2),
+    cor.pearson  = smd.ordl/sqrt((smd.ordl^2) + a),
+    var.cor.pearson = ((a^2)*var.smd.ordl)/(((smd.ordl^2)+a)^3)) %>% select(cor.pearson)
+  
+  data[bin.ind, "var.cor.pearson"]<- data[bin.ind, ] %>% mutate(
+    a = ((total1 + total2)^2)/(total1*total2),
+    cor.pearson  = smd.ordl/sqrt((smd.ordl^2) + a),
+    var.cor.pearson = ((a^2)*var.smd.ordl)/(((smd.ordl^2)+a)^3)) %>% select(var.cor.pearson)
+  
+  
+  pearson.ind <- which(!is.na(data$cor.pearson))
+  
+  data[pearson.ind, "z"] <- data[pearson.ind, ] %>% 
+    mutate(z = 0.5 * log( (1 + cor.pearson)/(1 - cor.pearson) , base = exp(1)), 
+           var.z= 1/(total1 + total2 - 3)) %>% select(z)
+  data[pearson.ind, "var.z"] <- data[pearson.ind, ] %>% 
+    mutate(z = 0.5 * log( (1 + cor.pearson)/(1 - cor.pearson) , base = exp(1)), 
+           var.z= 1/(total1 + total2 - 3)) %>% select(var.z)
+  
+  data$sig.single <- ifelse(data$pval.single < 0.05, 1, 0)
+  
+  return(data)
+}
+
+
+
+#Function to use with "data %>% mutate(.. = dupl.finder(..))"
+dupl.finder <- function(effects, names, metas){
+  
+  results <- rep(NA, times = length(effects))
+  meta.double.marker <- 1
+  
+  for(u in seq_along(effects)){
+    
+    if(is.na(results[u])){
+      
+      double.indices <- c(u, which(effects[u] == effects & names[u] == names))
+      
+      if(length(double.indices) > 1){
+        
+        meta.ids <- metas[double.indices]
+        meta.indices <- which(metas %in% meta.ids)
+        results[meta.indices] <- meta.double.marker
+        meta.double.marker <- meta.double.marker + 1
+        
+      } else results[u] <- 0
+      
+    }}
+  
+  return(results)
+}
+
+
+#Find the biggest meta-analysis within a duplicate set, again as "data %>% mutate(.. = dupl.finder(..))":
+dupl.max.finder <- function(duplicate.index, study.number, metas){
+  results <- rep(NA, length(duplicate.index))
+  
+  for(u in seq_along((duplicate.index))){
+    
+    duplicate.indices <- which(duplicate.index %in% duplicate.index[u])
+    
+    if(duplicate.index[u] != 0){
+      
+      meta.ids <- metas[duplicate.indices]
+      
+      max.meta.id <- meta.ids[which.max(study.number[duplicate.indices])]
+      max.meta.indices <- which(metas %in% max.meta.id)
+      if(length(unique(max.meta.id)) < 2){
+        results[max.meta.indices] <- 0
+      } else print("error")
+      
+    } else results[duplicate.indices] <- 0
+    
+  }
+  
+  results[is.na(results)] <- 1
+  
+  return(results)
+}
+
+
+#Copas selection model automatic estimate and std. error and N.unpubl extraction:
+#The estimate with smallest N.unpubl and a p-value larger than sig.level + 0.05 is chosen.
+auto.copas <- function(meta.obj, sig.level){
+  sig.level <- sig.level
+  gamma0 <- -1.7 #analog to P(select|small trial w. sd = 0.4) = 0.1 and P(select|large trial w. sd  = 0.05) = 0.9
+  gamma1 <- 0.16 #from limitmeta paper (Rücker 2011): "small range" procedure - if no nonsignificance - "broad range"
+  copas <- copas(meta.obj, gamma0.range = c(gamma0, 2), gamma1.range = c(0, gamma1))
+  pval.rsb <- copas$pval.rsb
+  N.unpubl <- copas$N.unpubl
+  if(all(pval.rsb < sig.level)){
+    copas <- copas(meta.obj, , gamma0.range = c(2*gamma0 - 2, 2), gamma1.range = c(0, 2*gamma1))
+    pval.rsb <- copas$pval.rsb
+    N.unpubl <- copas$N.unpubl
+    if(all(pval.rsb < sig.level)){
+      corr.est <- NA
+      se.corr.est <- NA
+      N.unpubl <- NA
+    } else{ 
+      ind.nonsig <- which(pval.rsb > sig.level)
+      ind.estimate <- which.min(N.unpubl[ind.nonsig])
+      corr.est <- copas$TE.slope[ind.nonsig[ind.estimate]]
+      se.corr.est <- copas$seTE.slope[ind.nonsig[ind.estimate]]
+      N.unpubl <- copas$N.unpubl[ind.nonsig[ind.estimate]]
+    }
+  } else{
+    if(all(pval.rsb > sig.level)){
+      corr.est <- NA
+      se.corr.est <- NA
+      N.unpubl <- NA
+    } else{
+      ind.nonsig <- which(pval.rsb > sig.level)
+      ind.estimate <- which.min(N.unpubl[ind.nonsig])
+      corr.est <- copas$TE.slope[ind.nonsig[ind.estimate]]
+      se.corr.est <- copas$seTE.slope[ind.nonsig[ind.estimate]]
+      N.unpubl <- copas$N.unpubl[ind.nonsig[ind.estimate]]
+    }
+    return(c(corr.est, se.corr.est, N.unpubl))
   }
 }

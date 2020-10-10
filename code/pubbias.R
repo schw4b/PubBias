@@ -121,3 +121,146 @@ pb.cleanJournalNames = function(titles) {
   
   return(titles)
 }
+
+
+# transforms logORs so that we get a estimate and SE for all the levels (and not k-1 levels).
+translogOR = function(theta, SEtheta, CovTheta) {
+  
+  n = length(theta) + 1
+  theta = c(0, theta)
+  SEtheta = c(0, SEtheta)
+  
+  CovTheta = rbind(0,(cbind(0,CovTheta)))
+  
+  assert(SEtheta == sqrt(diag(CovTheta)))
+  thetaStar = theta - mean(theta)
+  
+  # centering matrix
+  A = diag((n-1)/n, n)
+  A[upper.tri(A)] = -1/n
+  A[lower.tri(A)] = -1/n
+  
+  assertnum((A %*% theta), thetaStar)
+  
+  CovThetaStar = (A %*% CovTheta %*% t(A))
+  SEthetaStar = sqrt(diag(CovThetaStar))
+  
+  tab = data.frame(theta = theta, SEtheta = SEtheta,
+                   thetaStar = thetaStar, SEthetaStar = SEthetaStar)
+  return(tab)
+}
+
+tabOR = function(M, numeric = FALSE) {
+  assert(ncol(M) == 2)
+  logOr = M[,1]
+  SElogOr = M[,2]
+  
+  if (!numeric) {
+    tab = data.frame(OR = sprintf("%.2f",exp(logOr)),
+                     CI = sprintf("from %.2f to %.2f", 
+                                  exp(logOr-1.96*SElogOr),
+                                  exp(logOr+1.96*SElogOr)),
+                     z = sprintf("%.2f",logOr/SElogOr),
+                     p = formatPval(2*pnorm(-abs(logOr/SElogOr)))
+    )
+    colnames(tab)[2:4] = c("95%-CI", "z-value", "p-value")
+  } else if (numeric) {
+    tab = data.frame(theta = logOr,
+                     lower = logOr-1.96*SElogOr,
+                     upper = logOr+1.96*SElogOr
+    )
+  }
+  return(tab)
+}
+
+tabLm = function(M) {
+  theta = M[,1]
+  SEtheta = M[,2]
+  tab = data.frame(estimate = sprintf("%.3f", theta),
+                   CI = sprintf("from %.3f to %.3f", 
+                                theta-1.96*SEtheta,
+                                theta+1.96*SEtheta),
+                   t = sprintf("%.2f",theta/SEtheta),
+                   p = formatPval(2*pnorm(-abs(theta/SEtheta)))
+  )
+  colnames(tab)[2:4] = c("95%-CI", "t-value", "p-value")
+  
+  return(tab)
+}
+
+
+# converts OR to a SMD (Hedges' g)
+or2smd = function(or, se, n1, n2) {
+  
+  d = log(or)*sqrt(3)/pi # Cohen's d
+  Vd = (se^2)*3/pi^2 # Variance, Cooper p. 233
+  
+  # Hedges' g bias correction
+  df = n1 + n2 - 2
+  j = 1 - 3/(4*df - 1) # Cooper, p. 213
+  j = pmin(j, 1) # for cases df is 0, -1 or -2 
+  
+  g = d*j # Hedges' g 
+  SEg = sqrt(j^2*Vd)
+  
+  return(data.frame(g=g, SEg=SEg))
+}
+
+# converts SMD to r (Cohens' r)
+smd2r = function(d, vd, n1, n2) {
+  
+  a = (n1 + n2)^2 / (n1*n2) # Cooper p. 234
+  r = d / sqrt(d^2 + a)
+  vr = (a^2*vd)/(d^2 + a)^3
+  SEr = sqrt(vr)
+  
+  z = 0.5*log((1 + r) / (1 - r))
+  SEz = sqrt(1 / sqrt(n1 + n2 - 3))
+  
+  return(data.frame(r=r, SEr=SEr, z=z, SEz=SEz))
+}
+
+# delta AIC
+dAIC = function(fit) {
+  AIC = drop1(fit)
+  tab = data.frame(deltaAIC = AIC$AIC - AIC$AIC[1])
+  rownames(tab) = rownames(AIC)
+  return(tab)
+}
+
+# categorize bayes factors
+catbf = function(bf) {
+  cat = rep(NA, length(bf))
+  
+  idx = bf <= 1 & bf > 1/3
+  cat[idx] = "weak"
+  idx = bf <= 1/3 & bf > 1/10
+  cat[idx] = "moderate"
+  idx = bf <= 1/10 & bf > 1/30
+  cat[idx] = "substantial"
+  idx = bf <= 1/30 & bf > 1/100
+  cat[idx] = "strong"
+  idx = bf <= 1/100 & bf > 1/300
+  cat[idx] = "very strong"
+  idx = bf <= 1/300
+  cat[idx] = "decisive"
+  
+  cat = factor(cat, levels = c("weak", "moderate", "substantial", 
+                               "strong", "very strong", "decisive"))
+  return(cat)
+}
+
+# categorize bayes factors with less categories
+catbf.less = function(bf) {
+  cat = rep(NA, length(bf))
+  
+  idx = bf <= 1 & bf > 1/10
+  cat[idx] = "weak to moderate"
+  idx = bf <= 1/10 & bf > 1/100
+  cat[idx] = "substantial to strong"
+  idx = bf <= 1/100
+  cat[idx] = "very strong to decisive"
+  
+  cat = factor(cat, levels = c("weak to moderate", "substantial to strong", "very strong to decisive"))
+  return(cat)
+}

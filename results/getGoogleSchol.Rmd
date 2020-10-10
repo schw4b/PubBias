@@ -1,0 +1,33 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Prepate database
+```{r}
+# PATH_OUT = "/home/simon/Drive/gschol"
+PATH_DB = "/run/user/1000/gvfs/smb-share:server=freenas.local,share=homebox/simon/sciencedata/PubBias/data/gschol"
+PATH_OUT = "/home/simon/gschol" # do not save direcrtly to PATH_DB as of SMB performanc issues
+tab = read.csv("GScholURLs.txt", stringsAsFactors = FALSE)
+```
+
+# Save google scholar html pages
+```{r}
+n=nrow(tab)
+#n = 30000
+for (i in 1:n) {
+  file_out = sprintf('%s-gschol.html', file.path(PATH_OUT,paste0(tab$key_ascii[i])))
+  file_path = sprintf('%s-gschol_files', file.path(PATH_OUT,paste0(tab$key_ascii[i])))
+  file_exists = sprintf('%s-gschol.html', file.path(PATH_DB,paste0(tab$key_ascii[i])))
+    if (!file.exists(file_exists)) {
+      print(sprintf("%d of %d %d%% %s", i, n, round(i/n*100), tab$id[i]))
+      cmd = sprintf("./save_page_as \"%s\" --destination %s", tab$gschol[i], file_out)
+      cmd2 = sprintf("rm -rf %s", file_path)
+      # grepl("[[:cntrl:]]", tab$key[i])
+      #test = strsplit(cmd, "")[[1]]
+      #test[grepl("[[:cntrl:]]", test)]
+      system(cmd)
+      system(cmd2)
+    }
+}
+```

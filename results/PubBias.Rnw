@@ -3031,8 +3031,8 @@ plot.4.adjhist = ggplot(d, aes(x=reg.delta, fill=pb.hasPubBias)) +
   geom_histogram(position="identity", alpha=PLOT_ALPHA_HIST, bins = 100,
                  show.legend = TRUE) + 
   scale_fill_manual(name = "",
-                    labels = c("no evidence for\nasymmetry",
-                               "evidence for\nasymmetry"), 
+                    labels = c("no evidence for\nsmall-study effects",
+                               "evidence for\nsmall-study effects"), 
                     values=COLORS4[c(1,2)]) +
   scale_x_continuous(limits = c(-0.4, 0.4),
                      breaks=c(-0.4, -0.2, -0.08, 0, 0.2, 0.4), 
@@ -3164,8 +3164,8 @@ plot.4.cophist = ggplot(d, aes(x=cop.delta, fill=pb.hasPubBias)) +
   geom_histogram(position="identity", alpha=PLOT_ALPHA_HIST, bins = 30,
                  show.legend = TRUE) + 
   scale_fill_manual(name = "",
-                    labels = c("no evidence for\nasymmetry",
-                               "evidence for\nasymmetry"), 
+                    labels = c("no evidence for\nsmall-study effects",
+                               "evidence for\nsmall-study effects"), 
                     values=COLORS4[c(1,2)]) +
   scale_x_continuous(limits = c(-0.4, 0.4),
                      breaks=c(-0.4, -0.2, -0.08, 0, 0.2, 0.4), 
@@ -3450,9 +3450,9 @@ for (i in 1:length(idx)) {
   funnel(reg, col.adjust = COLORS4[2], col.line = COLORS4[2], cex.adjust = 2.5, bg = NA, col = "black", xlab = NA,
          contour.level= c(0.95, 0.99), shrunken = FALSE, cex=0.5)
   if (d.ma$outcome.flag == "DICH") {
-    points(exp(reg$TE[d$p < 0.05]), reg$seTE[d$p < 0.05], col=COLORS4[4], cex=0.5)
+    points(exp(reg$TE[d$p < 0.05]), reg$seTE[d$p < 0.05], col=COLORS4[2], cex=0.5)
   } else if (d.ma$outcome.flag == "CONT") {
-    points(reg$TE[d$p < 0.05], reg$seTE[d$p < 0.05], col=COLORS4[4], cex=0.5)
+    points(reg$TE[d$p < 0.05], reg$seTE[d$p < 0.05], col=COLORS4[2], cex=0.5)
   }
   
   if (grepl(data.ma.incl$reg.sm[idx[i]], "SMD")) {

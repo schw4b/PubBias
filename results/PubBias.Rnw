@@ -23,7 +23,7 @@
 
 
 \title{Supplementary: Assessing treatment effects and publication bias across different specialties in medicine}
-%\author{Simon Schwab, Giuachin Kreiliger \& Leonhard Held \\ Center for Reproducible Science \& \\ Epidemiology, Biostatistics and Prevention Institute \\ University of Zurich}
+\author{Simon Schwab, Giuachin Kreiliger \& Leonhard Held \\ Center for Reproducible Science \& \\ Epidemiology, Biostatistics and Prevention Institute \\ University of Zurich}
 
 \input{setup_20180629}
 
@@ -403,12 +403,12 @@ df  = n1 + n2 - 2
 
 tmp = or2smd(or=data$effect[idx], se=data$se[idx], n1=n1, n2=n2)
 
-data$effect.es[idx] = tmp$g
-data$effect.se[idx] = tmp$SEg
+data$effect.es[idx] = data$effect[idx]
+data$effect.se[idx] = data$se[idx]
 data$effect.g[idx] = tmp$g
 data$effect.SEg[idx] = tmp$SEg
 data$effect.N[idx] = n1 + n2
-data$effect.t[idx] = data$effect.es[idx]/data$effect.se[idx] # test statistic 
+data$effect.t[idx] = log(data$effect.es[idx])/data$effect.se[idx] # test statistic 
 data$effect.p[idx] = 2*(1-pnorm(abs(data$effect.t[idx]))) # two-sided test
 @
 <<Harmonization of effect sizes: IPD, eval=FALSE>>=
@@ -881,7 +881,7 @@ patternBias = "bias|sensitivity analys|sensitivity analisys"
 #patternDropouts = "total withdrawal[s]*|withdrawal[s]*\\s+from.*(study|treatment|protocol|trial)|leaving [the]* (study|trial)|dropout[s]*"
 #patternDropouts = "^withdrawal[s]*$|total withdrawal[s]*|withdrawal[s]* due"
 patternDropouts = "^(?!.*(alcohol withdrawal|withdrawal symptoms|steroid withdrawal)).*(withdrawn|withdrawing|withdrew|withdrawal[s]*|withdrawl[s]*|leaving\\s*[the]*\\s*(study|studies|trial|treatment)|dropout[s]*)"
-patternAdverse = "toxicity|adverse|side effect"
+patternAdverse = "toxicity|adverse|side effect|SAE"
 # complication can be adverse effect or efficacy, i.e. wound complications, neurol. complications
 
 # name = sprintf("%s %s %s", data$comparison.name, data$outcome.name, data$subgroup.name)
@@ -944,7 +944,7 @@ data$RCT = as.factor(data$RCT)
 data.ma.cbef = subset(data.ma, subset = 
                         estimable == "YES" & 
                         outcome.group=="efficacy" &
-                        #outcome.flag != "IV" &
+                        outcome.flag != "IV" &
                         nr.studies > 1 & 
                         !hasDuplicatedEffects & # combined effect questionable when duplicated results
                         !duplicated(effect.key) & # remove identical MA
@@ -1166,7 +1166,7 @@ data.ma$inclusion[idx] = TRUE
 data.ma.incl = subset(data.ma, subset = inclusion)
 data.ma.incl$outcome.measure.merged = as.factor(data.ma.incl$outcome.measure.merged)
 
-# Figure 1B 3
+# Figure 1d 3
 d = subset(data.ma, subset = !duplicated(effect.key))
 sprintf("%d not estimtable; %d nr studies < 2; %d total",
         sum(d$estimable == "NO"),
@@ -1187,6 +1187,8 @@ sprintf("%d not efficacy; %d heterog >=50; %d nr studies\n < 10; %d var ratio <=
         sum(d$outcome.group != "efficacy" | d$I2 >= 50 | d$nr.studies < 10 | d$nr.results < 10 | d$var.ratio <= 2 | 
           (!d$one.sign | is.na(d$one.sign)) | d$hasDuplicatedEffects | (d$total1 == 0 | d$total2 == 0), na.rm = T)
 )
+# 
+# length(unique(data.ma.incl$id))
 @
 <<Calculate publication bias and adjustment based on regression for each meta-analysis and add metrics TODO gamma, eval=FALSE>>=
 # examples
@@ -1263,6 +1265,8 @@ for (i in 1:nrow(data.ma.incl)) {
   
   if (d.ma$outcome.flag == "IV") { # OR or SMD
     
+    # TODO error in metabias below when resuls < 10, usink k.min as fix for now
+    
     # MA for publication bias estimation on original outcome measure
     if (grepl("^OR$|^PETO_OR$", d.ma$outcome.measure.merged)) {
       ma = metagen(TE = log(effect), seTE = se, n.e = total1, n.c = total2, sm = "OR", data = d)
@@ -1299,7 +1303,7 @@ for (i in 1:nrow(data.ma.incl)) {
       }
     }
     
-    pb = metabias(ma) # Harbord's test for OR, else Egger
+    pb = metabias(ma, k.min = 1) # Harbord's test for OR, else Egger
     
     data.ma.incl$ma.TE.fx[i]  = ma$TE.fixed
     data.ma.incl$ma.TE.rx[i]  = ma$TE.random
@@ -1444,7 +1448,10 @@ data.ma.incl$cop.sm = as.factor(data.ma.incl$cop.sm)
 data.ma.incl$pb.hasPubBias = FALSE
 data.ma.incl$pb.hasPubBias[data.ma.incl$pb.p.1 < 0.05] = TRUE
 #summary(data.ma.incl$reg.sm)
+# exclude  TODO
+data.ma.incl = subset(data.ma.incl, subset = nr.results > 9)
 @
+
 << (!) Experimental: second run Copas with custom gamma range, eval=FALSE>>=
 idx = which(is.na(data.ma.incl$cop.TE.adj)) # missing copa adjustment
 gamma0 = -1.7 #analog to P(select|small trial w. sd = 0.4) = 0.1 and P(select|large trial w. sd  = 0.05) = 0.9
@@ -1682,7 +1689,6 @@ data = data[, c("study.id", "specialty", "effect.r", "effect.N", "year", "cited.
 write.csv(data, file=file.path(PATH, "data.csv"), row.names=FALSE)
 @
 
-
 % % % Load data % % %
 <<Load data, eval=FALSE>>=
 load(file.path(PATH_DATA, FILE_CONTAINER))
@@ -1732,15 +1738,17 @@ d.2.efficacy = subset(data.ma.cbef, subset = outcome.group == "efficacy" &
 # Figure 1C (2) 
 d = subset(data.ma, subset = !duplicated(effect.key))
 
-sprintf("%d not estimtable; %d nr studies < 2; %d not efficacy; %d has duplicated effects; %d total",
+sprintf("%d not estimtable; %d nr studies < 2; %d not efficacy; %d has duplicated effects; %d is IV; %d other measure; %d total",
         sum(d$estimable == "NO"),
         sum(d$studies < 2 | d$nr.studies < 2, na.rm = TRUE),
         sum(d$outcome.group != "efficacy"),
         sum(d$hasDuplicatedEffects, na.rm = TRUE),
+        sum(d$outcome.flag == "IV" ),
+        sum(!grepl("^RR$|^MD$|^SMD$|^OR$|^PETO_OR$|^Hazard Ratio$|^RD$", data.ma$outcome.measure.merged)),
         sum(d$estimable == "NO" | (d$studies < 2 | d$nr.studies < 2) | d$outcome.group != "efficacy" | 
               d$hasDuplicatedEffects, na.rm = TRUE))
 nrow(d.2.efficacy)
-
+length(unique(d.2.efficacy$id))
 # sum(!is.finite(data.ma.cbef$ma.r))
 @
 << (!) Inspect p-values original versus re-estimated, eval=FALSE>>=
@@ -1791,12 +1799,13 @@ sum(tmp$total1 + tmp$total2)
 
 # Scimago and GSchol
 d = d.1.efficacy
+# d = data
 length(unique(d[d$cited > 0,]$study.name)) / length(unique(d$study.name))
 length(unique(d[d$SJR > 0,]$study.name)) / length(unique(d$study.name))
 
 # Efficacy vs safety outcomes
 d = data[!duplicated(data$effect.key),]
-summary(d$outcome.group)/nrow(d)
+summary(d$outcome.group)/nrow(d)*100
 
 # prop effect measures
 sum(sort(summary(as.factor(data$outcome.measure.merged)), decreasing = T)[1:10][1:7])/nrow(data)
@@ -2217,12 +2226,21 @@ d = d.1.efficacy
 d$specialty = relevel(d$specialty, "Gynaecology & Urology") # median r is baseline
 d$year.10 = d$year/10
 d$study.id = as.factor(d$study.id)
-n =  nlevels(d$specialty)
+n = nlevels(d$specialty)
+
 fit.1 = glm((p < 0.05) ~ specialty + SJR.Best.Quartile + log2(`effect.N`) + 
-              log2(cited.peryear) + year.10  + RCT, data = d, family = "binomial")
+               log2(cited.peryear) + year.10  + RCT, data = d, family = "binomial")
 
 fit.1.rx = glmer((p < 0.05) ~ specialty + SJR.Best.Quartile + log2(`effect.N`) + 
-                   log2(cited.peryear) + year.10  + RCT + (1 | study.id) , family = binomial (link ="logit"), nAGQ = 0, data = d)
+                   log2(cited.peryear) + year.10  + RCT + (1 | study.id) , family = binomial (link ="logit"), nAGQ = 0L, data = d)
+# Diagnostics
+# anova(fit.1.rx, fit.1)
+# qqmath(fit.1.rx)
+# d = d[complete.cases(d[,c("specialty", "SJR.Best.Quartile", "effect.N", "cited.peryear", "year.10", "RCT")]), ]
+# x=d[,c("effect.N", "cited.peryear", "year.10")]
+# x$effect.N = log2(x$effect.N)
+# x$cited.peryear = log2(x$cited.peryear)
+# cor(x)^2
 
 s = summary(fit.1.rx) # choose rx model
 M.1.spec = translogOR(theta = s$coefficients[2:n,1],
@@ -2539,12 +2557,22 @@ d$`median citations per year` =  d$ma.cited.peryear
 d$`review year` =  as.numeric(d$ma.review.year)/10
 d$`number of studies` = d$nr.studies 
 d$IDCMP = substr(d$key, 1, 16)
+d$CMP = substr(d$key, 10, 16)
 
 fit.2 = glm((orig.p.rx < 0.05) ~ specialty + log2(`median SJR`) + log2(`sample size`) + log2(`median citations per year`) + 
               `review year` + log2(`number of studies`), data=d, family = "binomial")
 
 fit.2.rx = glmer((orig.p.rx < 0.05) ~ specialty + log2(`median SJR`) + log2(`sample size`) + log2(`median citations per year`) + 
-                 `review year` + log2(`number of studies`) + (1 | id) + (1 | IDCMP), family = binomial (link ="logit"), nAGQ = 0, data=d)
+                 `review year` + log2(`number of studies`) + (1 | id), family = binomial (link ="logit"), nAGQ = 0L, data=d)
+
+# Diagnostics
+# anova(fit.2.rx, fit.2)
+# qqmath(fit.2.rx)
+# d = d[complete.cases(d[,c("specialty", "SJR.Best.Quartile", "effect.N", "cited.peryear", "year.10", "RCT")]), ]
+# x=d[,c("effect.N", "cited.peryear", "year.10")]
+# x$effect.N = log2(x$effect.N)
+# x$cited.peryear = log2(x$cited.peryear)
+# cor(x)^2
 
 s = summary(fit.2.rx)
 M.2.spec = translogOR(theta = s$coefficients[2:n,1],
@@ -2656,7 +2684,7 @@ plot.3.prev = ggplot(tab.propPB, aes(x=specialty, y=p)) +
         axis.title = element_text(size = PLOT_FSIZE),
         legend.position = "none") + 
   ylab("proportion") +
-  ggtitle(sprintf("Prevalence of funnel plot asymmetry in\n%s meta-analyses",  prettyNum(nrow(data.ma.incl), big.mark = ",")))
+  ggtitle(sprintf("Prevalence of small-study effects in\n%s meta-analyses",  prettyNum(nrow(data.ma.incl), big.mark = ",")))
 
 # sorted table with result
 # tab.propPB[order(tab.propPB$p, decreasing = TRUE),]
@@ -2711,6 +2739,7 @@ d$specialty = relevel(d$specialty, "Emergency & Trauma")
 d$specialty = factor(d$specialty, levels = rev(levels(d$specialty)))
 
 d$IDCMP = substr(d$key, 1, 16)
+d$CMP = substr(d$key, 10, 16)
 d$`sample size` = d$N
 d$pb.review.year = (d$pb.review.year - mean(d$pb.review.year))/10
 d$`number of studies` = d$nr.studies
@@ -2721,9 +2750,16 @@ fit.3a = lm(abs(pb.stat) ~ specialty + log2(pb.SJR) + log2(`sample size`) + log2
              `pb.review.year` + log2(`number of studies`), data=d)
 
 fit.3a.rx = lmer(abs(pb.stat) ~ specialty + log2(pb.SJR) + log2(`sample size`) + log2(pb.cited.peryear) +
-                  `pb.review.year` + log2(`number of studies`) + (1 | IDCMP), data=d)
+                  `pb.review.year` + log2(`number of studies`) + (1 | id), data=d)
 
-# eval = dAIC(fit.4.rx)
+# Diagnostics
+# anova(fit.3a.rx.2, fit.3a.rx, fit.3a)
+# qqmath(fit.3a.rx)
+# d = d[complete.cases(d[,c("specialty", "SJR.Best.Quartile", "effect.N", "cited.peryear", "year.10", "RCT")]), ]
+# x=d[,c("effect.N", "cited.peryear", "year.10")]
+# x$effect.N = log2(x$effect.N)
+# x$cited.peryear = log2(x$cited.peryear)
+# cor(x)^2
 
 s = summary(fit.3a.rx)
 #ci = confint(fit.4.rx)
@@ -2770,7 +2806,7 @@ tab$variables = factor(tab$variables, levels = tab$variables[idx])
 plot.3.stat = ggplot(tab, aes(y=variables, x=Estimate, color=mycolor)) +
   geom_point(size=2, alpha=PLOT_ALPHA) + 
   geom_errorbarh(aes(xmin=lower, xmax=upper), alpha=PLOT_ALPHA, height=1) +
-  scale_x_continuous(limits = c(-0.6, 0.6)) +
+  #scale_x_continuous(limits = c(-0.6, 0.6)) +
   scale_colour_manual(values=c(COLORS4[1], COLORS4[2], "grey50")) +
   theme_minimal() + theme(legend.position = c(0.83, 0.30), 
                           legend.title = element_blank(),
@@ -2781,14 +2817,15 @@ plot.3.stat = ggplot(tab, aes(y=variables, x=Estimate, color=mycolor)) +
                           legend.text = element_text(size = PLOT_FSIZE),
                           axis.title.y = element_blank()) +
   geom_vline(xintercept = 0, linetype="dashed", color = "grey50", size=0.5) + 
-  xlab("estimate for evidence of asymmetry") +
-  ggtitle(sprintf("Funnel plot asymmetry (t-score) \nin %s meta-analyses",  prettyNum(nrow(data.ma.incl), big.mark = ",")))
+  xlab("estimate (slope)") +
+  ggtitle(sprintf("Small-study effects (t-score) \nin %s meta-analyses",  prettyNum(nrow(data.ma.incl), big.mark = ",")))
 @
 
 <<Model fit 3b: Table regression model for asymmetry (binary), warning=FALSE, results="asis">>=
 d = data.ma.incl
 n = nlevels(d$specialty)
 d$IDCMP = substr(d$key, 1, 16)
+d$CMP = substr(d$key, 10, 16)
 # mean of means
 # m = tapply(d$pb.slope, d$specialty, mean)
 # which.min(abs(m - mean(m)))
@@ -2804,8 +2841,16 @@ fit.3b = glm(pb.hasPubBias ~ specialty + log2(pb.SJR) + log2(`sample size`) +
               log2(pb.cited.peryear) + `pb.review.year` + log(`number of studies`), data=d, family = "binomial")
 
 fit.3b.rx = glmer(pb.hasPubBias ~ specialty +  log2(pb.SJR) + log2(`sample size`) + 
-                   log2(pb.cited.peryear) + `pb.review.year` + log2(`number of studies`) + (1 | IDCMP), family = binomial(link ="logit"), nAGQ = 1L, data=d,                                  # control=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5))
-)
+                   log2(pb.cited.peryear) + `pb.review.year` + log2(`number of studies`) + (1 | id), family = binomial(link ="logit"), nAGQ = 0L, data=d)
+
+# Diagnostics
+# anova(fit.3b.rx, fit.3b.rx.2, fit.3b)
+# qqmath(fit.3a.rx)
+# d = d[complete.cases(d[,c("specialty", "SJR.Best.Quartile", "effect.N", "cited.peryear", "year.10", "RCT")]), ]
+# x=d[,c("effect.N", "cited.peryear", "year.10")]
+# x$effect.N = log2(x$effect.N)
+# x$cited.peryear = log2(x$cited.peryear)
+# cor(x)^2
 
 s = summary(fit.3b.rx)
 M.3b.spec = translogOR(theta = s$coefficients[2:n,1],
@@ -2871,7 +2916,7 @@ plot.3.OR = ggplot(tab, aes(y=variables, x=theta, color=mycolor)) +
                           legend.text = element_text(size = PLOT_FSIZE),
                           axis.title.y = element_blank()) +
   geom_vline(xintercept = 0, linetype="dashed", color = "grey50", size=0.5) + xlab("odds ratio") +
-  ggtitle(sprintf("Funnel plot asymmetry (yes/no) \nin %s meta-analyses",  prettyNum(nrow(data.ma.incl), big.mark = ",")))
+  ggtitle(sprintf("Small-study effects (yes/no) \nin %s meta-analyses",  prettyNum(nrow(data.ma.incl), big.mark = ",")))
 @
 
 <<Plot categorization versus regression slopes>>=
@@ -2880,7 +2925,7 @@ set.seed(1986)
 plot.3.catslope = ggplot(d, aes(y=pb.slope, x=category, color=category)) +
   geom_point(size=0.5, position = position_jitter(width = 0.2, height = 0), alpha = PLOT_ALPHA) + 
   #scale_y_continuous(limits = c(-4, 4)) +
-  scale_x_discrete(labels = c("no asymmetry", "asymmetry", "asymmetry and\nprobable publication bias")) +
+  scale_x_discrete(labels = c("no small-study\neffects", "small-study\neffects", "small-study effects w/\nprobable pub. bias")) +
   scale_colour_manual(values=c("grey50", COLORS4[1], COLORS4[2])) +
   theme_minimal() + theme(legend.position = "none", 
                           plot.title = element_text(size=PLOT_FSIZE),
@@ -2928,7 +2973,7 @@ plot.3.reviews = ggplot(tab, aes(x = specialty, y=nr, fill=group)) +
   scale_y_continuous(limits = c(0, 60), breaks = c(0, 10, 20, 30, 40, 50, 60))  +
   geom_text(aes(label=ifelse(group=="ppb", as.character(specialty), "")), vjust=0.1, hjust=0,
             color="black", size=2.5, angle=90) + 
-  scale_fill_manual(values=COLORS4[c(2,1)], labels = c("asymmetry & probable\npublication bias", "asymmetry")) +
+  scale_fill_manual(values=COLORS4[c(2,1)], labels = c("small-study effects & probable\npublication bias", "small-study effects")) +
   theme_minimal() + xlab("specialties") + ylab("number of reviews") +
   theme(legend.title = element_blank(), 
         legend.key.size = unit(0.4, "cm"),
@@ -2938,8 +2983,8 @@ plot.3.reviews = ggplot(tab, aes(x = specialty, y=nr, fill=group)) +
         axis.text.x = element_blank(),
         axis.title = element_text(size = PLOT_FSIZE),
         legend.text = element_text(size = PLOT_FSIZE),
-        legend.position = c(0.7, 0.9)) +
-  ggtitle(sprintf("Absolute number of Cochrane systematic reviews\nwith at least one meta-analysis affected with bias",   
+        legend.position = c(0.67, 0.92)) +
+  ggtitle(sprintf("Absolute number of Cochrane systematic reviews\nwith at least one meta-analysis affected by bias",   
                   prettyNum(nrow(d.1.efficacy), big.mark = ","))
   )
 
@@ -3039,9 +3084,9 @@ fit.4 = lm(reg.delta ~ specialty + log2(pb.SJR) + log2(`sample size`) + log2(pb.
              `pb.review.year` + log2(`number of studies`), data=d)
 
 fit.4.rx = lmer(reg.delta ~ specialty + log2(pb.SJR) + log2(`sample size`) + log2(pb.cited.peryear) +
-                  `pb.review.year` + log2(`number of studies`) + (1 | IDCMP), data=d)
+                  `pb.review.year` + log2(`number of studies`) + (1 | id), data=d)
 
-# eval = dAIC(fit.4.rx)
+# anova(fit.4.rx, fit.4)
 
 s = summary(fit.4.rx)
 #ci = confint(fit.4.rx)
@@ -3090,7 +3135,7 @@ plot.4.reg = ggplot(tab, aes(y=variables, x=Estimate, color=mycolor)) +
   geom_point(size=2, alpha=PLOT_ALPHA) + 
   geom_errorbarh(aes(xmin=lower, xmax=upper), alpha=PLOT_ALPHA, height=1) +
   #scale_x_continuous(breaks=xticks, labels = sprintf("%.2f", xticks)) +
-  scale_x_continuous(limits = c(-0.07, 0.07)) +
+  scale_x_continuous(limits = c(-0.10, 0.10)) +
   scale_colour_manual(values=c(COLORS4[1], COLORS4[2], "grey50")) +
   theme_minimal() + theme(legend.position = c(0.83, 0.10), 
                           legend.title = element_blank(),
@@ -3165,9 +3210,9 @@ fit.5 = lm(cop.delta ~ specialty + log2(pb.SJR) + log2(`sample size`) + log2(pb.
              `pb.review.year` + log2(`number of studies`), data=d)
 
 fit.5.rx = lmer(cop.delta ~ specialty + log2(pb.SJR) + log2(`sample size`) + log2(pb.cited.peryear) +
-                  `pb.review.year` + log2(`number of studies`) + (1 | IDCMP), data=d)
+                  `pb.review.year` + log2(`number of studies`) + (1 | id), data=d)
 
-# eval = dAIC(fit.4.rx)
+# anova(fit.5.rx, fit.5)
 
 s = summary(fit.5.rx)
 tab1 = s$coefficients[2:n,]
@@ -3381,6 +3426,7 @@ idx2 =  sample(which(inc & data.ma.incl$pb.p.1 < 0.05 & data.ma.incl$smallStudie
 #idx3 =  sample(which(data.ma.incl$pb.p.1 > 0.10), 4) # no evidence
 
 idx = c(idx1, idx2)
+# 3649  496 1820 3589 1255 2790  703 4434 5505 2836 1973 1231 5514   50 1090 4930
 #idx = which(data.ma.incl$pb.side == "left" & data.ma.incl$pb.p.1 > 0.50 & data.ma.incl$pb.p.2 < 0.01)[1:15]
 
 png(file.path(PATH_FIGURES, 'Figure5.png'), width = 7, height = 8.5, units = "in", res = 300)
@@ -3463,6 +3509,96 @@ dev.off()
 % % % End of analysis % % %
 
 % % % Additional analyses % % %
+<<Missing data, eval=FALSE>>=
+d = d.1.efficacy
+d$year.10 = d$year/10
+d = d[, c("p", "specialty", "SJR.Best.Quartile", "effect.N", "cited.peryear", "year.10", "RCT")]
+summary(d)
+
+sum(is.na(d$SJR.Best.Quartile))/nrow(d)
+sum(is.na(d$cited.peryear))/nrow(d)
+sum(is.na(d$year.10))/nrow(d)
+
+sum(is.na(d$SJR.Best.Quartile) | is.na(d$cited.peryear) | is.na(d$year.10))/ nrow(d)
+
+
+d = d.2.efficacy
+d$ma.review.year =  d$ma.review.year/10
+d = d[, c("orig.p.rx", "specialty", "ma.sjr", "N", "ma.cited.peryear", "ma.review.year", "nr.studies")]
+summary(d)
+sum(is.na(d$ma.sjr))/nrow(d)
+sum(is.na(d$ma.cited.peryear))/nrow(d)
+sum(is.na(d$ma.sjr) | is.na(d$ma.cited.peryear))/ nrow(d)
+
+d = data.ma.incl
+d$pb.review.year =  (d$pb.review.year - mean(d$pb.review.year))/10
+d = d[, c("pb.stat", "specialty", "pb.SJR", "N", "pb.cited.peryear", "pb.review.year", "nr.studies")]
+summary(d)
+sum(is.na(d$pb.SJR))/nrow(d)
+sum(is.na(d$pb.cited.peryear))/nrow(d)
+sum(is.na(d$pb.SJR) | is.na(d$pb.cited.peryear))/ nrow(d)
+
+
+# missing at random across specialities?
+d = d.1.efficacy
+
+sort(tapply(is.na(d$SJR.Best.Quartile), d$specialty, function (x) sum(x)/length(x)))
+sort(tapply(is.na(d$cited.peryear), d$specialty, function (x) sum(x)/length(x)))
+
+sum(is.na(d$SJR.Best.Quartile))/nrow(d)
+sum(is.na(d$cited.peryear))/nrow(d)
+sum(is.na(d$year))/nrow(d)
+
+
+@
+<<Inspect crossover trials, eval=FALSE>>=
+d = d.1.efficacy
+idx = grepl("crossover|cross-over", d$char.methods, ignore.case = TRUE) | grepl("crossover|cross-over", d$title, ignore.case = TRUE)
+sum(idx)/nrow(d)
+length(unique(d$study.id[idx]))/length(unique(d$study.id))
+
+idx = d$outcome.measure.merged == "OR" & (grepl("crossover|cross-over", d$char.methods, ignore.case = TRUE) | grepl("crossover|cross-over", d$title, ignore.case = TRUE) )
+
+plot(log(d$effect[idx]), log(d$effect.es[idx]))
+plot(log(d$se[!idx]), log(d$effect.es[!idx]))
+
+
+i=which(idx)[3800]
+data$study.name[i]
+
+summary(data$outcome.flag[idx])
+summary(as.factor(data$outcome.measure.merged[idx]))
+@
+<<OR discrepancies, eval=FALSE>>=
+d = subset(d.1.efficacy, subset = outcome.measure.merged == "OR" & (effect - effect.es > 0.01) )
+#d = subset(d.1.efficacy, subset = outcome.measure.merged == "OR")
+
+i = sample(nrow(d), 1)
+
+ggplot(d, aes(x = log(effect), y = log(effect.es))) +
+  geom_point() +
+  #scale_x_continuous(limits = c(-50, 50)) +
+  #scale_y_continuous(limits = c(-50, 50)) +
+  theme_minimal() +
+  geom_hline(yintercept = log(d$effect.es[i])) +
+  geom_vline(xintercept = log(d$effect[i]))
+
+d$effect[i]
+d$effect.es[i]
+d$outcome.measure.merged[i]
+d$outcome.flag[i]
+
+e1=d$events1[i]
+e2=d$events2[i]
+n1=d$total1[i]
+n2=d$total2[i]
+
+escalc(measure="OR", ai=e1, bi=n1-e1, ci=e2, di=n2-e2, drop00 = TRUE) # cell assignment is correct here!
+
+
+summary(d$outcome.flag)
+@
+
 <<Looking at unpublished studies, eval=FALSE>>=
 sum(data.ma.incl$unpublishedStudies > 0 & data.ma.incl$pb.hasPubBias)
 
@@ -3520,13 +3656,13 @@ mtext(sprintf("%.2f (from %.2f to %.2f)", exp(d.ma$reg.TE.adj), exp(d.ma$reg.low
 mtext(sprintf("%.2f (from %.2f to %.2f)", exp(d.ma$cop.TE.adj), exp(d.ma$cop.lower.adj), exp(d.ma$cop.upper.adj)),
       side=1, line=5.0, adj = 0, cex = 0.7, col = COLORS4[1])
 @
-<<Try Egger's regression with lm, eval=FALSE>>=
+<<Try Eggers regression with lm, eval=FALSE>>=
 fit = lm(I(effect/se) ~ I(1/se), data = d)
 summary(fit)
 
 metabias(ma2, method.bias = "linreg")
 @
-<<For Erik: Compare t statistic to test statistic bases on original data, eval=FALSE>>=
+<<Compare t statistic to test statistic bases on original data, eval=FALSE>>=
 d = d.1.efficacy
 z_orig = rep(NA, nrow(d))
 sort(summary(as.factor(d.1.efficacy$outcome.measure.merged)), decreasing = T)
@@ -3552,8 +3688,8 @@ for (i in 1:length(myLevels)) {
     geom_point(size=0.2, alpha=PLOT_ALPHA, col = COLORS4[1]) +
     #geom_smooth(method='lm', formula= y~x, se=TRUE, level = 0.95,  col=COLORS4[2]) +
   theme_minimal() +
-  #scale_x_continuous(limits = c(-0.80, 0.60)) +
-  #scale_y_continuous(limits = c(-0.80,0.60)) +
+  #scale_x_continuous(limits = c(-10, 10)) +
+  #scale_y_continuous(limits = c(-10, 10)) +
   theme(aspect.ratio=1,
         plot.title = element_text(size = PLOT_FSIZE),
         axis.text = element_text(size = PLOT_FSIZE),
@@ -3564,8 +3700,33 @@ for (i in 1:length(myLevels)) {
   ggtitle(sprintf("Cochrane: %s\nSimon: %s", myLevels[i], labelsSim[i]))
   
 }
-
 plot_grid(plotlist = p, nrow = 2, ncol = 3)
+
+
+d = subset(d.1.efficacy, subset = outcome.measure.merged == "SMD")
+idx = which(abs(d$effect.t) > 20)
+d$outcome.flag[idx]
+
+d$effect.t[i]
+d$events1[i]/d$total1[idx]
+d$effect[i]/d$se[i]
+d$se[i]
+
+log(d[i,]$effect) / d[i,]$se
+
+
+@
+
+<<RCT boxplot, eval=FALSE>>=
+d = subset(d.1.efficacy, subset = !duplicated(study.id))
+tapply(d$SJR,  d$RCT, function (x) median(x, na.rm=T))
+
+boxplot(d$SJR,  d$RCT)
+@
+
+<<Determine expected side of benefit vs sign, eval=FALSE>>=
+d = data.ma.incl
+d$rx
 @
 
 %\bibliography{biblio}

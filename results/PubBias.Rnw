@@ -1051,7 +1051,7 @@ for (i in 1:nrow(data.ma.cbef)) {
       orig =  metacont(n.e = total1, mean.e = mean1, sd.e = sd1,
                        n.c = total2, mean.c = mean2, sd.c = sd2, data = d, sm = "MD")
       data.ma.cbef$orig.measure[i] = "MD"
-    } else if (grepl("^SDM$", data.ma.cbef$outcome.measure.merged[i])) {
+    } else if (grepl("^SMD$", data.ma.cbef$outcome.measure.merged[i])) { # ERROR was previously SDM!!
       orig = metacont(n.e = total1, mean.e = mean1, sd.e = sd1,
                       n.c = total2, mean.c = mean2, sd.c = sd2, data = d,
                       sm = "SMD", method.smd = "Hedges")
@@ -1423,6 +1423,7 @@ for (i in 1:nrow(data.ma.incl)) {
   data.ma.incl$reg.p.adj[i]       = reg$pval.adjust
   
   # copas, here effects from dich data are stored as log odds
+  
   cop = copas(ma.reg)
   s = summary(cop)
   data.ma.incl$cop.TE.rx[i]    = s$random$TE
@@ -1653,24 +1654,9 @@ data.ma.incl$smallStudiesSign = data.ma.incl$smallStudiesSign50 >= 0.50 |
   data.ma.incl$smallStudiesSign67 >= 0.50 | 
   data.ma.incl$smallStudiesSign75 >= 0.50
 @
-<<Categorization, eval=FALSE>>=
-data.ma.incl$category = NA
-data.ma.incl$category[!data.ma.incl$pb.hasPubBias] = "no asymmetry"
-data.ma.incl$category[data.ma.incl$pb.hasPubBias] = "asymmetry"
-data.ma.incl$category[data.ma.incl$smallStudiesSign] = "probable publication bias"
-data.ma.incl$category = factor(data.ma.incl$category, levels = c("no asymmetry", "asymmetry", "probable publication bias"))
-summary(data.ma.incl$category)/nrow(data.ma.incl)
-@
 
 <<Save data, eval=FALSE>>=
 # save(data, data.ma, data.ma.incl, data.ma.incl.ma, data.ma.incl.reg, data.ref, data.review, data.sjr, data.ma.cbef, file = file.path(PATH_DATA, FILE_CONTAINER))
-@
-<<Save data for Erik, eval=FALSE>>=
-x = subset(data, subset = !duplicated(data$study.id) & data$outcome.nr==1 & data$comparison.nr==1 &
-             data$outcome.group=="efficacy")
-nrow(x)
-sum(sort(summary(as.factor(x$outcome.measure.merged)), decreasing = T)[c(1,2,3,4,6)])
-# save(data, data.ma, data.ref, data.review, file = file.path(PATH_DATA, "PubBias-Erik.RData"))
 @
 <<Save data for workshop, eval=FALSE>>=
 # Studies have many effects, only select one effect per study for simplicity
@@ -1690,8 +1676,55 @@ write.csv(data, file=file.path(PATH, "data.csv"), row.names=FALSE)
 @
 
 % % % Load data % % %
-<<Load data, eval=FALSE>>=
+<<Load data, eval=TRUE>>=
 load(file.path(PATH_DATA, FILE_CONTAINER))
+@
+<<Categorization, eval=TRUE>>=
+data.ma.incl$category = NA
+data.ma.incl$category[!data.ma.incl$pb.hasPubBias] = "no asymmetry"
+data.ma.incl$category[data.ma.incl$pb.hasPubBias] = "asymmetry"
+data.ma.incl$category[data.ma.incl$smallStudiesSign] = "probable publication bias"
+data.ma.incl$category = factor(data.ma.incl$category, levels = c("no asymmetry", "asymmetry", "probable publication bias"))
+summary(data.ma.incl$category)/nrow(data.ma.incl)
+@
+<<Save data for OSF and Erik, eval=FALSE>>=
+# save(data, data.ma, data.ref, data.review, file = file.path(PATH_DATA, "PubBias-Erik.RData"))
+d = subset(data, subset = !is.na(data$effect.t) & 
+             !duplicated(data$effect.key)
+)
+
+d$comparator = "other"
+idx = grep("placebo",d$comparison.name, ignore.case = TRUE)
+d$comparator[idx] = "placebo"
+d$comparator = as.factor(d$comparator)
+
+s = paste(d$char.notes, d$char.methods, d$title, sep=" ")
+d$phase = "unknown"
+ind = grep("phase 1|phase I", s, ignore.case = TRUE)
+d$phase[ind]="phase 1"
+ind=grep("phase 2|phase II", s, ignore.case = TRUE)
+d$phase[ind]="phase 2"
+ind=grep("phase 3|phase III", s, ignore.case = TRUE)
+d$phase[ind]="phase 3"
+ind=grep("phase 4|phase IV", s, ignore.case = TRUE)
+d$phase[ind]="phase 4"
+d$phase = as.factor(d$phase)
+library(openssl)
+d$study.id.sha1 = sha1(d$study.id)
+
+tab = d[, c("study.id.sha1", "comparison.nr", "outcome.nr", "outcome.group", "RCT", "phase", "comparator", "effect.t", "study.data_source")]
+colnames(tab)[colnames(tab) == "effect.t"] = "z"
+# write.csv(tab, file = "~/Data/PubBias/results/CochraneEffects.csv")
+
+tab$is.duplicated = duplicated(tab$study.id.sha1)
+erik = subset(tab, subset =  outcome.nr == 1 & !is.duplicated & RCT == "yes")
+summary(erik$study.data_source)/nrow(erik)
+
+# Erik used then the following code to sample studies:
+# d=read.csv("M:\\papers\\Cochrane data\\CochraneEffects.csv")
+# d=d %>% filter(RCT=="yes")
+# d=d[d$outcome.group=="efficacy" & d$outcome.nr==1 & abs(d$z)<20,]
+# d=group_by(d,study.id.sha1) %>% sample_n(size=1) # select single outcome per study
 @
 <<Preparing datasets for the analysis below>>=
 
@@ -1869,8 +1902,9 @@ system(paste("open", file.path(PATH_RESULTS, "PubBias.pdf")))
 @
 
 \newpage
-\includepdf[pages=-]{supplementary_tables}
+\includepdf[pages=-]{supplementary}
 \setcounter{table}{2} % start first table with Table 3
+\setcounter{figure}{1} % start first table with Figure 2
 \section{Effect sizes from primary studies}
 
 % % % 1 Primary studies and reported effects  % % %
@@ -2295,7 +2329,7 @@ plot.1.OR = ggplot(tab, aes(y=variables, x=theta, color=mycolor)) +
   geom_point(size=2, alpha=PLOT_ALPHA) + 
   geom_errorbarh(aes(xmin=lower, xmax=upper), alpha=PLOT_ALPHA, height=1) +
   scale_x_continuous(breaks=xticks, limits = xlimit, labels = sprintf("%.2f", exp(xticks))) +
-  scale_colour_manual(values=c(COLORS4[c(2,1)], "grey50")) +
+  scale_colour_manual(values=c(COLORS4[c(2,1)], "grey50"), labels = c("higher\nodds", "lower\nodds", "n.s.")) +
   theme_minimal() + theme(legend.position = c(0.8, 0.5), 
                           legend.title = element_blank(),
                           legend.key.height = unit(0.3, "cm"),
@@ -2305,7 +2339,7 @@ plot.1.OR = ggplot(tab, aes(y=variables, x=theta, color=mycolor)) +
                           axis.title.y = element_blank(),
                           plot.title = element_text(size=PLOT_FSIZE)) +
   geom_vline(xintercept = 0, linetype="dashed", color = "grey50", size=0.5) + xlab("odds ratio") +
-  ggtitle(sprintf("Statistical significance of\n%s effects",  prettyNum(nrow(d.1.efficacy), big.mark = ",")))
+  ggtitle(sprintf("Statistical significance of\n%s study effects",  prettyNum(nrow(d.1.efficacy), big.mark = ",")))
 @
 
 <<Poster Table effect sizes of primary studies, eval=FALSE>>=
@@ -2588,7 +2622,7 @@ M.2.other = s$coefficients[(n+1):nrow(s$coefficients),]
 tab2 = tabOR(M.2.other[,1:2])
 tab = rbind(tab1,tab2)
 rownames(tab)[1] = paste("Specialty:",rownames(tab)[1])
-rownames(tab)[(n+1):nrow(tab)] = c("median SJR (log2)", "Sample size (log2)", "Citations per year (log2)", 
+rownames(tab)[(n+1):nrow(tab)] = c("Median SJR (log2)", "Sample size (log2)", "Median citations per year (log2)", 
                                 "Review year (per 10 years)", "Number of studies")
 
 print(xtable(tab, align = rep("r", ncol(tab)+1), 
@@ -2603,8 +2637,8 @@ tab1$variables = levels(d$specialty)
 tab2 = tabOR(M.2.other[,c(1,2)], numeric = TRUE)
 tab2$variables = rownames(M.2.other)
 rownames(tab2) = NULL
-tab2$variables = c("median SJR (log2)", "sample size (log2)",
-                  "median citations per year (log2)", "Review year (per 10 years)", 
+tab2$variables = c("Median SJR (log2)", "Sample size (log2)",
+                  "Median citations per year (log2)", "Review year (per 10 years)", 
                   "No. of studies (log2)")
 
 tab = rbind(tab1,tab2)
@@ -2772,7 +2806,7 @@ tab1 = tab1[idx,]
 
 #tab2 = cbind(s$coefficients[(n+1):nrow(s$coefficients),], ci[(n+3):nrow(ci),])
 tab2 = s$coefficients[(n+1):nrow(s$coefficients),]
-rownames(tab2) = c("median SJR (log2)", "Sample size (log2)", "Citations per year (log2)", 
+rownames(tab2) = c("Median SJR (log2)", "Sample size (log2)", "Median citations per year (log2)", 
                    "Review year (per 10 years)", "No. of studies (log2)")
 tab.3a = rbind(tab1, tab2)
 tab = tabLm(tab.3a)
@@ -2780,7 +2814,7 @@ tab = tabLm(tab.3a)
 
 rownames(tab)[1] = paste("Specialty:",rownames(tab)[1])
 print(xtable(tab, align = rep("r", ncol(tab)+1), 
-             caption = "Regression analysis of variables associated with the t-score from adjustment by regression.", label = "label"),
+             caption = "Regression analysis of variables associated with the t-score from adjustment by regression. In the medical specialties, Emergency and Trauma is closest to the mean estimate across all specialties and severs as baseline level.", label = "label"),
       hline.after = c(0, n-1, nrow(tab)), size = "scriptsize", table.placement = "H")
 #tableRegression(fit.4, xtable = F)
 @
@@ -2807,7 +2841,7 @@ plot.3.stat = ggplot(tab, aes(y=variables, x=Estimate, color=mycolor)) +
   geom_point(size=2, alpha=PLOT_ALPHA) + 
   geom_errorbarh(aes(xmin=lower, xmax=upper), alpha=PLOT_ALPHA, height=1) +
   #scale_x_continuous(limits = c(-0.6, 0.6)) +
-  scale_colour_manual(values=c(COLORS4[1], COLORS4[2], "grey50")) +
+  scale_colour_manual(values=c(COLORS4[c(1,2)], "grey50"), labels = c("less\nbias", "more\nbias", "n.s.")) +
   theme_minimal() + theme(legend.position = c(0.83, 0.30), 
                           legend.title = element_blank(),
                           legend.key.height = unit(0.3, "cm"),
@@ -2867,7 +2901,7 @@ M.3b.other = s$coefficients[(n+1):nrow(s$coefficients),]
 tab2 = tabOR(M.3b.other[,1:2])
 tab = rbind(tab1,tab2)
 rownames(tab)[1] = paste("Specialty:",rownames(tab)[1])
-rownames(tab)[(n+1):nrow(tab)] = c("median SJR (log2)", "Sample size (log2)", "Citations per year (log2)", 
+rownames(tab)[(n+1):nrow(tab)] = c("Median SJR (log2)", "Sample size (log2)", "Median citations per year (log2)", 
                                 "Review year (per 10 years)", "No. of studies (log2)")
 
 print(xtable(tab, align = rep("r", ncol(tab)+1), 
@@ -2881,8 +2915,8 @@ tab1$variables = levels(d$specialty)
 tab2 = tabOR(M.3b.other[,c(1,2)], numeric = TRUE)
 tab2$variables = rownames(M.3b.other)
 rownames(tab2) = NULL
-tab2$variables = c("median SJR (log2)", "sample size (log2)",
-                  "median citations(log2)", "Review year (per 10 years)", 
+tab2$variables = c("Median SJR (log2)", "Sample size (log2)",
+                  "Median citations per year(log2)", "Review year (per 10 years)", 
                   "No. of studies (log2)")
 
 tab = rbind(tab1,tab2)
@@ -2907,7 +2941,7 @@ plot.3.OR = ggplot(tab, aes(y=variables, x=theta, color=mycolor)) +
   geom_errorbarh(aes(xmin=lower, xmax=upper), alpha=PLOT_ALPHA, height=1) +
   scale_x_continuous(breaks=xticks, limits = xlimit, labels = sprintf("%.2f", exp(xticks))) +
   scale_colour_manual(values=c(COLORS4[2], "grey50")) +
-  theme_minimal() + theme(legend.position = c(0.18, 0.92), 
+  theme_minimal() + theme(legend.position = "none",#c(0.18, 0.92), 
                           legend.title = element_blank(),
                           legend.key.height = unit(0.3, "cm"),
                           plot.title = element_text(size=PLOT_FSIZE),
@@ -2925,7 +2959,7 @@ set.seed(1986)
 plot.3.catslope = ggplot(d, aes(y=pb.slope, x=category, color=category)) +
   geom_point(size=0.5, position = position_jitter(width = 0.2, height = 0), alpha = PLOT_ALPHA) + 
   #scale_y_continuous(limits = c(-4, 4)) +
-  scale_x_discrete(labels = c("no small-study\neffects", "small-study\neffects", "small-study effects w/\nprobable pub. bias")) +
+  scale_x_discrete(labels = c("no small-study\neffects", "small-study\neffects", "small-study effects\nw/ probable pub. bias")) +
   scale_colour_manual(values=c("grey50", COLORS4[1], COLORS4[2])) +
   theme_minimal() + theme(legend.position = "none", 
                           plot.title = element_text(size=PLOT_FSIZE),
@@ -2982,7 +3016,7 @@ plot.3.reviews = ggplot(tab, aes(x = specialty, y=nr, fill=group)) +
         axis.text.y = element_text(size = PLOT_FSIZE),
         axis.text.x = element_blank(),
         axis.title = element_text(size = PLOT_FSIZE),
-        legend.text = element_text(size = PLOT_FSIZE),
+        legend.text = element_text(size = PLOT_FSIZE-2),
         legend.position = c(0.67, 0.92)) +
   ggtitle(sprintf("Absolute number of Cochrane systematic reviews\nwith at least one meta-analysis affected by bias",   
                   prettyNum(nrow(d.1.efficacy), big.mark = ","))
@@ -3099,7 +3133,7 @@ tab1 = tab1[idx,]
 
 #tab2 = cbind(s$coefficients[(n+1):nrow(s$coefficients),], ci[(n+3):nrow(ci),])
 tab2 = s$coefficients[(n+1):nrow(s$coefficients),]
-rownames(tab2) = c("median SJR (log2)", "Sample size (log2)", "Citations per year (log2)", 
+rownames(tab2) = c("Median SJR (log2)", "Sample size (log2)", "Med. citations per year (log2)", 
                    "Review year (per 10 years)", "No. of studies (log2)")
 tab.4 = rbind(tab1, tab2)
 tab = tabLm(tab.4)
@@ -3107,7 +3141,7 @@ tab = tabLm(tab.4)
 
 rownames(tab)[1] = paste("Specialty:",rownames(tab)[1])
 print(xtable(tab, align = rep("r", ncol(tab)+1), 
-             caption = "Regression analysis of variables associated with the change of effect estimates after adjustment by regression.", label = "label"),
+             caption = "Regression analysis of variables associated with the change of effect estimates after adjustment by regression. In the medical specialties, Hepato-Billary is closest to the mean estimate across all specialties and severs as baseline level.", label = "label"),
       hline.after = c(0, n-1, nrow(tab)), size = "scriptsize", table.placement = "H")
 #tableRegression(fit.4, xtable = F)
 @
@@ -3146,8 +3180,8 @@ plot.4.reg = ggplot(tab, aes(y=variables, x=Estimate, color=mycolor)) +
                           legend.text = element_text(size = PLOT_FSIZE),
                           axis.title.y = element_blank()) +
   geom_vline(xintercept = 0, linetype="dashed", color = "grey50", size=0.5) + 
-  xlab("estimate for change in effect size r") +
-  ggtitle("Mixed-effects model of change in\neffect (regression-based)")
+  xlab("estimate for change in effect r") +
+  ggtitle("Change in effect (regression)")
 @
 
 % % % Copas % % %
@@ -3222,14 +3256,14 @@ idx = order(s$coefficients[2:n,1], decreasing = TRUE)
 tab1 = tab1[idx,]
 
 tab2 = s$coefficients[(n+1):nrow(s$coefficients),]
-rownames(tab2) = c("median SJR (log2)", "Sample size (log2)", "Citations per year (log2)", 
+rownames(tab2) = c("Median SJR (log2)", "Sample size (log2)", "Med. citations per year (log2)", 
                    "Review year (per 10 years)", "No. of studies (log2)")
 tab.5 = rbind(tab1, tab2)
 tab = tabLm(tab.5)
 
 rownames(tab)[1] = paste("Specialty:",rownames(tab)[1])
 print(xtable(tab, align = rep("r", ncol(tab)+1), 
-             caption = "Regression analysis of variables associated with change of the effect estimates after adjustment by Copas selction model.", label = "label"),
+             caption = "Regression analysis of variables associated with change of the effect estimates after adjustment by Copas selction model. In the medical specialties, Lungs is closest to the mean estimate across all specialties and severs as baseline level.", label = "label"),
       hline.after = c(0, n-1, nrow(tab)), size = "scriptsize", table.placement = "H")
 #tableRegression(fit.4, xtable = F)
 @
@@ -3267,8 +3301,8 @@ plot.4.regCopas = ggplot(tab, aes(y=variables, x=Estimate, color=mycolor)) +
                           legend.text = element_text(size = PLOT_FSIZE),
                           axis.title.y = element_blank()) +
   geom_vline(xintercept = 0, linetype="dashed", color = "grey50", size=0.5) + 
-  xlab("estimate for change in effect size r") +
-  ggtitle("Mixed-effects model of change in\neffect (Copas selection model)")
+  xlab("estimate for change in effect r") +
+  ggtitle("Change in effect (Copas)")
 @
 
 <<Plot in change of evidence after adjustment>>=
@@ -3397,21 +3431,21 @@ sum(data.ma.incl$smallStudiesSign & data.ma.incl$unpublishedStudies > 0, na.rm=T
 
 <<Save Figure 4, warning=FALSE>>=
 fig.4  = ggdraw() +
-  draw_plot(plot.4.adjhist, x = 0, y = .68, width = .45, height = .32) +
-  draw_plot(plot.4.cophist, x = .45, y = .68, width = .55, height = .32) +
-  draw_plot(plot.4.reg, x = 0, y = .32, width = .45, height = .36) +
-  draw_plot(plot.4.regCopas, x = .45, y = .32, width = .55, height = .36) +
+  draw_plot(plot.4.adjhist, x = 0, y = .68, width = .50, height = .32) +
+  draw_plot(plot.4.cophist, x = .50, y = .68, width = .50, height = .32) +
+  draw_plot(plot.4.reg, x = 0, y = .32, width = .50, height = .36) +
+  draw_plot(plot.4.regCopas, x = .50, y = .32, width = .50, height = .36) +
   draw_plot(plot.4.corSpec, x = 0, y = 0, width = .30, height = .32) +
   draw_plot(plot.4.corMA, x = .30, y = 0, width = .30, height = .32) +
   draw_plot(plot.4.evid, x = .60, y = 0, width = .40, height = .32) +
   
   draw_plot_label(label = c("a", "b", "c", "d", "e", "f", "g"), size = 15,
-                  x = c(0, 0.45, 0, 0.45, 0, 0.30, 0.60),
+                  x = c(0, 0.50, 0, 0.50, 0, 0.30, 0.60),
                   y = c(1, 1, 0.66, 0.66, 0.33, 0.33, 0.33))
 
 ggsave(plot = fig.4, path = PATH_FIGURES, filename = "Figure4.png", width = 7, height = 9)
 @
-<<Figure 5, Examples with funnel plots, eval=FALSE>>=
+<<Figure 5, Examples with funnel plots, eval=TRUE>>=
 # take MAs with strongest evidence
 set.seed(1986)
 # inclusion critera for plot
@@ -3429,7 +3463,7 @@ idx = c(idx1, idx2)
 # 3649  496 1820 3589 1255 2790  703 4434 5505 2836 1973 1231 5514   50 1090 4930
 #idx = which(data.ma.incl$pb.side == "left" & data.ma.incl$pb.p.1 > 0.50 & data.ma.incl$pb.p.2 < 0.01)[1:15]
 
-png(file.path(PATH_FIGURES, 'Figure5.png'), width = 7, height = 8.5, units = "in", res = 300)
+tiff(file.path(PATH_FIGURES, 'Figure4.tiff'), width = 7, height = 8.5, units = "in", res = 300)
 par(mfrow=c(4,4), oma=c(1,0,0,1.5))
 for (i in 1:length(idx)) {
   #print(i)
@@ -3496,8 +3530,8 @@ for (i in 1:length(idx)) {
         xlab = d.ma$reg.sm)
   mtext(sprintf("%s %s", d.ma$id, d.ma$outsub.id), side=4, line=0, cex = 0.4)
   mtext(substr(d.ma$subgroup.name,1,25), side=4, line=0.8, cex = 0.5)
-  mtext(substr(d.ma$comparison.name,1,38), side=3, line=0.8, cex = 0.5)
-  mtext(substr(d.ma$outcome.name,1,38), side=3, line=0, cex = 0.5)
+  mtext(substr(d.ma$comparison.name,1,38), side=3, line=1.0, cex = 0.5)
+  mtext(substr(d.ma$outcome.name,1,38), side=3, line=0.4, cex = 0.5)
   mtext(myPval, side=1, line=2.0, cex = 0.5, adj = 1.5)
   mtext(sprintf("k = %d", d.ma$nr.results), side=1, line=2.0, cex = 0.5, adj = 0)
   
@@ -3509,21 +3543,89 @@ dev.off()
 % % % End of analysis % % %
 
 % % % Additional analyses % % %
+<<Heterogeneity, eval=FALSE>>=
+idx = data.ma$estimable == "YES" &
+  data.ma$outcome.group == "efficacy" & 
+  # data.ma$outcome.flag != "IV" & # IV outcomes have no data do reanalyze MA
+  #data.ma$I2 < 50 &
+  data.ma$nr.studies >= 10 &
+  data.ma$nr.results >= 10 &  
+  data.ma$var.ratio > 2 & # protocol: ratio > 2
+  data.ma$one.sign &
+  !data.ma$hasDuplicatedEffects &  # combined effect questionable when duplicated results
+  !duplicated(data.ma$effect.key) & # remove identical MA
+  data.ma$total1 > 0 & 
+  data.ma$total2 > 0 # few IV have zero group sizes 
+  
+d = subset(data.ma, subset = idx)
+nrow(d)
+
+sum(d$I2 < 50)
+d$hetero = NA
+d$hetero[d$I2 < 50] = "low"
+d$hetero[d$I2 >= 50] = "high"
+d$hetero = as.factor(d$hetero)
+summary(d$hetero)
+d$mean_sample_size = d$N/d$nr.studies
+tapply(d$N, d$hetero, median)
+tapply(d$N/d$nr.studies, d$hetero, median)
+
+ggplot(d, aes(y=log(mean_sample_size), x=hetero, color=hetero)) +
+  geom_boxplot() + 
+  geom_point(size=0.5, shape=1, position = position_jitter(width = 0.2, height = 0), alpha=0.1) +
+  theme(legend.position = "none") + theme_minimal() +
+  scale_color_manual(values = COLORS4) + xlab("heterogeneity") + ylab("log(average study size per meta-analysis)")
+@
+<<Heterogeneity 2, eval=FALSE>>=
+idx = data.ma$estimable == "YES" &
+  data.ma$outcome.group == "efficacy" & 
+  # data.ma$outcome.flag != "IV" & # IV outcomes have no data do reanalyze MA
+  data.ma$I2 > 80 &
+  data.ma$nr.studies >= 10 &
+  data.ma$nr.results >= 10 &  
+  data.ma$var.ratio > 2 & # protocol: ratio > 2
+  data.ma$one.sign &
+  !data.ma$hasDuplicatedEffects &  # combined effect questionable when duplicated results
+  !duplicated(data.ma$effect.key) & # remove identical MA
+  data.ma$total1 > 0 & 
+  data.ma$total2 > 0 &# few IV have zero group sizes
+  data.ma$outcome.measure.merged == "RR" &
+  data.ma$outsub.id == "CMP-001.01"
+
+i = 510
+d.ma = data.ma[i,]
+d = data[data$id == "CD000023" & data$comparison.nr == 1 & data$outcome.nr == 1,]
+
+ma.rr = metabin(event.e = events1, n.e = total1, 
+                event.c = events2, n.c = total2, RR.Cochrane = TRUE, 
+                Q.Cochrane = TRUE, sm = "RR", data = d)
+ma.or = metabin(event.e = events1, n.e = total1, 
+                event.c = events2, n.c = total2, RR.Cochrane = TRUE, 
+                Q.Cochrane = TRUE, sm = "OR", data = d)
+
+# so tau is substatially different while I^2 is not
+
+@
+
 <<Missing data, eval=FALSE>>=
-d = d.1.efficacy
-d$year.10 = d$year/10
-d = d[, c("p", "specialty", "SJR.Best.Quartile", "effect.N", "cited.peryear", "year.10", "RCT")]
+summary(d.1.efficacy$effect.r)
+summary(d.2.efficacy$ma.r)
+summary(data.ma.incl$pb.stat)
+
+sum(is.na(data.ma.incl$reg.delta))/nrow(data.ma.incl)
+sum(is.na(data.ma.incl$cop.delta))/nrow(data.ma.incl)
+
+d = d[, c("p", "specialty", "SJR.Best.Quartile", "effect.N", "cited.peryear", "year", "RCT")]
 summary(d)
 
 sum(is.na(d$SJR.Best.Quartile))/nrow(d)
 sum(is.na(d$cited.peryear))/nrow(d)
-sum(is.na(d$year.10))/nrow(d)
+sum(is.na(d$year))/nrow(d)
 
-sum(is.na(d$SJR.Best.Quartile) | is.na(d$cited.peryear) | is.na(d$year.10))/ nrow(d)
+sum(is.na(d$SJR.Best.Quartile) | is.na(d$cited.peryear) | is.na(d$year))/ nrow(d)
 
 
 d = d.2.efficacy
-d$ma.review.year =  d$ma.review.year/10
 d = d[, c("orig.p.rx", "specialty", "ma.sjr", "N", "ma.cited.peryear", "ma.review.year", "nr.studies")]
 summary(d)
 sum(is.na(d$ma.sjr))/nrow(d)
@@ -3548,8 +3650,13 @@ sort(tapply(is.na(d$cited.peryear), d$specialty, function (x) sum(x)/length(x)))
 sum(is.na(d$SJR.Best.Quartile))/nrow(d)
 sum(is.na(d$cited.peryear))/nrow(d)
 sum(is.na(d$year))/nrow(d)
-
-
+@
+<<Category boundaries for SJR, eval=FALSE>>=
+range(data$SJR[data$SJR.Best.Quartile == "Q1"], na.rm = TRUE)
+range(data$SJR[data$SJR.Best.Quartile == "Q2"], na.rm = TRUE)
+range(data$SJR[data$SJR.Best.Quartile == "Q3"], na.rm = TRUE)
+range(data$SJR[data$SJR.Best.Quartile == "Q4"], na.rm = TRUE)
+# proper categorization was done by SCIMago and is subfield specific
 @
 <<Inspect crossover trials, eval=FALSE>>=
 d = d.1.efficacy
@@ -3716,7 +3823,6 @@ log(d[i,]$effect) / d[i,]$se
 
 
 @
-
 <<RCT boxplot, eval=FALSE>>=
 d = subset(d.1.efficacy, subset = !duplicated(study.id))
 tapply(d$SJR,  d$RCT, function (x) median(x, na.rm=T))
@@ -3727,6 +3833,43 @@ boxplot(d$SJR,  d$RCT)
 <<Determine expected side of benefit vs sign, eval=FALSE>>=
 d = data.ma.incl
 d$rx
+@
+<<Studies with both dichotomous and binary outcome from Psychiatry>>=
+d = subset(d.1.efficacy, subset = specialty == "Psychiatry & Mental Health" & comparison.nr == 1)
+myStudies = unique(d$study.id)
+N = length(myStudies) # no of studies
+
+i = 1
+tmp = subset(d, subset = study.id == myStudies[i])
+
+
+
+@
+
+<<Checking out meta-analysis recalculation, eval=FALSE>>=
+
+# Original analysis from Cochrane
+data.ma.cbef[3642, c("effect", "ci_start", "ci_end", "z", "p_z")]
+# Simon's reanalysis using the original effect measure
+data.ma.cbef[3642, c("orig.effect.rx", "orig.se.rx", "orig.lower.rx", "orig.upper.rx", "orig.z.rx", "orig.p.rx", "orig.measure")]
+# Simon's meta-analysis on effect measures using SMD or OR
+data.ma.cbef[3642, c("ma.effect.rx", "ma.se.rx", "ma.lower.rx", "ma.upper.rx", "ma.z.rx", "ma.p.rx", "ma.measure")]
+
+
+# Cochrane
+data.ma.cbef[950, c("effect", "ci_start", "ci_end", "z", "p_z", "outcome.measure.merged")]
+# Simon's reanalysis on original effect measure
+data.ma.cbef[950, c("orig.effect.fx", "orig.se.fx", "orig.lower.fx", "orig.upper.fx", "orig.z.fx", "orig.p.fx", "orig.measure")]
+# Simon's meta-analyis on heterogenized effect measures SMD a OR
+data.ma.cbef[950, c("ma.effect.fx", "ma.se.fx", "ma.lower.fx", "ma.upper.fx", "ma.z.fx", "ma.p.fx", "ma.measure")]
+
+idx = data.ma.cbef$z > -20 & data.ma.cbef$z < 20
+hist(data.ma.cbef$z[idx])
+
+idx = data.ma.cbef$ma.z.fx > -20 & data.ma.cbef$ma.z.fx < 20
+hist(data.ma.cbef$ma.z.fx[idx])
+
+plot(data.ma.cbef$z[idx], abs(data.ma.cbef$ma.z.rx[idx]), xlim = c(0,20), ylim = c(0,20), cex=0.1)
 @
 
 %\bibliography{biblio}
